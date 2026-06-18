@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0b0f1d">
+  <title>Sabotage Spatial — jeu de déduction sociale en ligne</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ÉCRAN ACCUEIL -->
+  <section id="screen-home" class="screen">
+    <div class="stars-bg"></div>
+    <h1 class="logo">SABOTAGE<span>SPATIAL</span></h1>
+    <p class="tagline">Un vaisseau à la dérive. Des missions à accomplir. Des saboteurs parmi vous.</p>
+    <div class="card home-card">
+      <input id="home-name" maxlength="16" placeholder="Ton pseudo" autocomplete="off">
+      <button id="btn-create" class="btn primary big">🚀 Créer un salon</button>
+      <div class="sep"><span>ou rejoindre</span></div>
+      <div class="row">
+        <input id="home-code" maxlength="4" placeholder="CODE" autocomplete="off" class="code-input">
+        <button id="btn-join" class="btn">Rejoindre</button>
+      </div>
+      <p class="hint">4 à 12 joueurs · navigateur · mobile & PC · aucune installation</p>
+    </div>
+  </section>
+
+  <!-- ÉCRAN SALON -->
+  <section id="screen-lobby" class="screen hidden">
+    <div class="stars-bg"></div>
+    <div class="lobby-wrap">
+      <div class="card lobby-main">
+        <h2>Salon <span id="lobby-code" class="room-code"></span></h2>
+        <button id="btn-copy" class="btn small">🔗 Copier le lien d'invitation</button>
+        <h3>Joueurs <span id="lobby-count"></span></h3>
+        <div id="lobby-players" class="players-grid"></div>
+        <h3>Ta couleur</h3>
+        <div id="color-picker" class="color-picker"></div>
+        <div class="lobby-actions">
+          <button id="btn-start" class="btn primary big">▶ Lancer la partie</button>
+          <button id="btn-lobby-mic" class="btn small">🎙️ Activer le micro</button>
+          <button id="btn-addbot" class="btn small hidden" title="Ajouter un bot d'entraînement (test local)">🤖 + Bot</button>
+          <button id="btn-rembot" class="btn small hidden" title="Retirer le dernier bot">🤖 −</button>
+          <button id="btn-leave" class="btn small danger">Quitter</button>
+        </div>
+        <p id="lobby-status" class="hint"></p>
+      </div>
+      <div class="card lobby-settings">
+        <h3>⚙️ Paramètres <span class="hint" id="settings-who"></span></h3>
+        <label>Saboteurs <input type="number" id="set-impostors" min="1" max="3"></label>
+        <label>Délai entre éliminations (s) <input type="number" id="set-killCooldown" min="10" max="60"></label>
+        <label>Temps de discussion (s) <input type="number" id="set-discussTime" min="15" max="120"></label>
+        <label>Temps de vote (s) <input type="number" id="set-voteTime" min="15" max="120"></label>
+        <label>Missions par joueur <input type="number" id="set-tasksPerPlayer" min="2" max="8"></label>
+        <label>Réunions d'urgence / joueur <input type="number" id="set-emergencies" min="0" max="3"></label>
+        <label class="check"><input type="checkbox" id="set-confirmEjects"> Révéler le rôle des éjectés</label>
+      </div>
+    </div>
+  </section>
+
+  <!-- ÉCRAN JEU -->
+  <section id="screen-game" class="screen hidden">
+    <canvas id="cv"></canvas>
+
+    <div id="hud">
+      <div id="tasks-panel">
+        <h4 id="tasks-title">Missions</h4>
+        <ul id="task-list"></ul>
+      </div>
+      <div id="progress-wrap" title="Progression des missions de l'équipage">
+        <div id="progress-bar"></div>
+        <span id="progress-label">Missions de l'équipage</span>
+      </div>
+      <div id="sab-banner" class="hidden"></div>
+      <div id="role-banner" class="hidden"></div>
+      <div id="ghost-banner" class="hidden">👻 Tu observes en spectateur — vision totale du vaisseau</div>
+
+      <div id="btns">
+        <button id="b-kill" class="action-btn kill hidden">TUER<small>T</small></button>
+        <button id="b-sab" class="action-btn sab hidden">SABOTER<small>V</small></button>
+        <button id="b-report" class="action-btn report">SIGNALER<small>R</small></button>
+        <button id="b-use" class="action-btn use">UTILISER<small>E</small></button>
+        <button id="b-map" class="action-btn map">CARTE<small>C</small></button>
+      </div>
+
+      <button id="b-mic" class="round-btn" title="Chat vocal">🎙️</button>
+
+      <div id="joystick"><div id="stick"></div></div>
+
+      <div id="chat" class="collapsed">
+        <div id="chat-head">
+          <button class="chat-tab active" data-ch="global">Global</button>
+          <button class="chat-tab hidden" data-ch="imp" id="tab-imp">☠ Saboteurs</button>
+          <button id="chat-min">—</button>
+        </div>
+        <div id="chat-log"></div>
+        <form id="chat-form" autocomplete="off">
+          <input id="chat-input" maxlength="200" placeholder="Message…">
+          <button type="submit">➤</button>
+        </form>
+      </div>
+      <button id="chat-toggle" class="round-btn">💬<span id="chat-badge" class="hidden"></span></button>
+
+      <div id="cams-hud" class="hidden">
+        <span>📹 CAMÉRAS DE SURVEILLANCE</span>
+        <button id="cams-close" class="btn small">Quitter les caméras</button>
+      </div>
+      <div id="toast"></div>
+    </div>
+
+    <!-- Mini-jeu -->
+    <div id="overlay-minigame" class="overlay hidden"><div id="mg-box" class="card"></div></div>
+
+    <!-- Choix de sabotage -->
+    <div id="overlay-sab" class="overlay hidden">
+      <div class="card sab-box">
+        <h3>☠ Déclencher un sabotage</h3>
+        <button class="btn sab-opt" data-sab="lights">💡 Lumières<small>Réduit la vision des équipiers</small></button>
+        <button class="btn sab-opt" data-sab="reactor">☢️ Réacteur<small>Critique — victoire si non réparé</small></button>
+        <button class="btn sab-opt" data-sab="o2">🫧 Oxygène<small>Critique — victoire si non réparé</small></button>
+        <button class="btn sab-opt" data-sab="comms">📡 Communications<small>Désactive missions et caméras</small></button>
+        <button class="btn small" id="sab-cancel">Annuler</button>
+      </div>
+    </div>
+
+    <!-- Carte -->
+    <div id="overlay-map" class="overlay hidden">
+      <div class="map-box card">
+        <div class="map-head">
+          <h3>🗺️ Carte du vaisseau</h3>
+          <span class="hint" id="map-hint">Clique pour marquer un événement suspect</span>
+          <button id="map-close" class="btn small">✕</button>
+        </div>
+        <canvas id="map-cv" width="960" height="600"></canvas>
+      </div>
+    </div>
+
+    <!-- Réunion -->
+    <div id="overlay-meeting" class="overlay hidden">
+      <div class="meeting-box card">
+        <h2 id="meeting-title">Réunion d'urgence</h2>
+        <div id="meeting-sub" class="hint"></div>
+        <div id="meeting-timer"></div>
+        <div id="meeting-players"></div>
+        <div id="meeting-result" class="hidden"></div>
+        <div class="meeting-actions">
+          <button id="btn-skip" class="btn">🤐 S'abstenir</button>
+        </div>
+        <div id="meeting-chat-slot"></div>
+        <p class="hint">Discutez dans le chat ou en vocal, puis votez pour exclure un suspect.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ÉCRAN FIN -->
+  <section id="screen-end" class="screen hidden">
+    <div class="stars-bg"></div>
+    <div class="card end-card">
+      <h1 id="end-title"></h1>
+      <p id="end-reason"></p>
+      <div id="end-roles"></div>
+      <button id="btn-again" class="btn primary big hidden">↻ Rejouer</button>
+      <p id="end-wait" class="hint hidden">En attente de l'hôte pour relancer…</p>
+    </div>
+  </section>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/shared/shared.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/minigames.js"></script>
+  <script src="js/voice.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/net.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>

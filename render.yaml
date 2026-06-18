@@ -1,0 +1,14 @@
+# Blueprint Render — déploiement automatique de Sabotage Spatial
+# https://render.com  →  New +  →  Blueprint  →  sélectionne ton dépôt GitHub
+services:
+  - type: web
+    name: sabotage-spatial
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

@@ -1,0 +1,20 @@
+# Dépendances
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Variables d'environnement locales
+.env
+.env.local
+
+# Config locale de l'outillage (chemins spécifiques à la machine)
+.claude/
+
+# Fichiers OS / éditeurs
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

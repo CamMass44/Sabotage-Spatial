@@ -64,9 +64,25 @@ client/           HTML/CSS/JS vanilla + Canvas 2D (zéro build, léger pour mobi
 
 Choix technique : le client est en **Canvas 2D vanilla** plutôt que React/Phaser — aucun build, chargement instantané, parfait pour les machines modestes. Le serveur Socket.io reste l'autorité sur les règles (rôles, kills, votes, victoires) ; les positions sont envoyées par les clients à 12 Hz et rediffusées à 10 Hz.
 
-## Déploiement
+## Déploiement en ligne (Render, gratuit)
 
-Le serveur est un simple process Node (`npm start`, port via `$PORT`). Fonctionne tel quel sur **Render, Railway, Fly.io, Heroku** ou un VPS derrière un reverse proxy HTTPS (Caddy/Nginx). Les salons sont en mémoire : pour du multi-instance, ajouter l'adaptateur Redis de Socket.io et un sticky-session.
+Le projet est prêt pour Render : le blueprint [`render.yaml`](render.yaml) décrit le service et une sonde `/healthz` permet la surveillance. HTTPS automatique (donc le chat vocal fonctionne) et WebSocket pris en charge sans config.
+
+1. **Mettre le code sur GitHub** — crée un dépôt vide sur <https://github.com/new> (sans README ni .gitignore), puis depuis ce dossier :
+   ```bash
+   git remote add origin https://github.com/<TON_PSEUDO>/sabotage-spatial.git
+   git push -u origin main
+   ```
+2. **Déployer sur Render** — sur <https://render.com> : connecte-toi avec GitHub → **New +** → **Blueprint** → sélectionne le dépôt → **Apply**. Render lit `render.yaml` et construit le service (~2-3 min).
+3. **Jouer** — l'URL publique ressemble à `https://sabotage-spatial.onrender.com`. Partage-la : tout le monde peut rejoindre en un clic.
+
+> ℹ️ Le tier gratuit met le service en veille après 15 min sans trafic ; le premier joueur attend ~50 s au réveil, puis tout est fluide. Pour supprimer cette latence, passe le `plan` en payant dans `render.yaml`.
+
+> 🎙️ Le chat vocal (WebRTC) utilise un serveur STUN public et fonctionne pour la grande majorité des joueurs. Derrière certains réseaux d'entreprise (NAT strict), il peut échouer — le chat textuel, lui, marche toujours. Pour 100 % de fiabilité, ajoute un serveur TURN dans `RTC_CONFIG` ([client/js/voice.js](client/js/voice.js)).
+
+### Autres hébergeurs
+
+Le serveur est un simple process Node (`npm start`, port via `$PORT`). Fonctionne aussi sur **Railway, Fly.io** ou un VPS derrière un reverse proxy HTTPS (Caddy/Nginx). Les salons sont en mémoire : pour du multi-instance, ajouter l'adaptateur Redis de Socket.io et du sticky-session.
 
 Pistes d'évolution prévues par le design :
 - **Classement** : brancher PostgreSQL/Supabase (victoires, parties jouées) — les salons étant en mémoire, rien à migrer

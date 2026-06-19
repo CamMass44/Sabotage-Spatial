@@ -109,10 +109,15 @@
         <button id="b-map" class="action-btn map">CARTE<small>C</small></button>
       </div>
 
-      <!-- Contrôles de conduit (affichés quand on est dans un conduit) -->
+      <!-- Écran de conduit (semi-transparent, affiché quand on est dans un conduit) -->
       <div id="vent-controls" class="hidden">
-        <div id="vent-arrows"></div>
-        <button id="vent-exit" class="btn">⬆ Sortir du conduit</button>
+        <div class="vent-panel">
+          <h3>🛳️ Dans un conduit</h3>
+          <p class="hint">Choisis une destination sur le plan, puis ressors.</p>
+          <canvas id="vent-map" width="300" height="188"></canvas>
+          <div id="vent-arrows"></div>
+          <button id="vent-exit" class="btn primary big">⬆ Sortir du conduit</button>
+        </div>
       </div>
 
       <!-- Minimap persistante -->

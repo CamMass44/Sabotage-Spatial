@@ -246,7 +246,58 @@ window.UI = (() => {
       btn.onclick = () => App.socket.emit('vent:move', { ventId: v.id });
       arrows.appendChild(btn);
     }
+    drawVentMap();
     wrap.classList.remove('hidden');
+  }
+
+  // Plan du réseau de conduits : pièces en fond, conduits reliés, destination cliquable
+  function drawVentMap() {
+    const cv = $('vent-map');
+    if (!cv) return;
+    const ctx = cv.getContext('2d');
+    const W = cv.width, H = cv.height;
+    const sc = Math.min(W / SHARED.WORLD.w, H / SHARED.WORLD.h);
+    const ox = (W - SHARED.WORLD.w * sc) / 2, oy = (H - SHARED.WORLD.h * sc) / 2;
+    const X = (x) => ox + x * sc, Y = (y) => oy + y * sc;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0a0e1c'; ctx.fillRect(0, 0, W, H);
+    // pièces en fond
+    ctx.fillStyle = '#1c2742';
+    for (const r of SHARED.ROOMS) ctx.fillRect(X(r.x), Y(r.y), r.w * sc, r.h * sc);
+    const cur = App.ventNet.find((v) => v.id === App.inVent);
+    // liaisons entre conduits du réseau
+    if (cur) {
+      ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
+      for (const v of App.ventNet) {
+        if (v.id === App.inVent) continue;
+        ctx.beginPath(); ctx.moveTo(X(cur.x), Y(cur.y)); ctx.lineTo(X(v.x), Y(v.y)); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+    // conduits
+    ctx.textAlign = 'center';
+    for (const v of App.ventNet) {
+      const isCur = v.id === App.inVent;
+      ctx.fillStyle = isCur ? '#22c55e' : '#60a5fa';
+      ctx.beginPath(); ctx.arc(X(v.x), Y(v.y), isCur ? 8 : 6, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+      const room = SHARED.roomAt(v.x, v.y);
+      ctx.fillStyle = isCur ? '#bbf7d0' : '#cfe0ff';
+      ctx.font = 'bold 10px Segoe UI';
+      ctx.fillText(isCur ? '● ICI' : (room ? room.name : 'Conduit'), X(v.x), Y(v.y) - 11);
+    }
+    // clic sur le plan -> rejoindre le conduit le plus proche
+    cv.onclick = (e) => {
+      const r = cv.getBoundingClientRect();
+      const mx = (e.clientX - r.left) * (W / r.width), my = (e.clientY - r.top) * (H / r.height);
+      let best = null, bestD = 1e9;
+      for (const v of App.ventNet) {
+        if (v.id === App.inVent) continue;
+        const d = Math.hypot(X(v.x) - mx, Y(v.y) - my);
+        if (d < bestD) { bestD = d; best = v; }
+      }
+      if (best && bestD < 40) App.socket.emit('vent:move', { ventId: best.id });
+    };
   }
 
   function hideVentControls() {

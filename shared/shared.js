@@ -62,14 +62,14 @@
     { id: 'cables_elec',  name: 'Réparer les câbles',        room: 'Électricité',      x: 700,  y: 740,  type: 'wires' },
     { id: 'cables_stock', name: 'Réparer les câbles',        room: 'Stockage',         x: 1000, y: 1100, type: 'wires' },
     { id: 'upload',       name: 'Téléverser les données',    room: 'Communications',   x: 1600, y: 1230, type: 'download' },
-    { id: 'nav_code',     name: 'Entrer le cap',             room: 'Navigation',       x: 2150, y: 700,  type: 'code' },
+    { id: 'nav_code',     name: 'Aligner la tuyauterie',     room: 'Navigation',       x: 2150, y: 700,  type: 'pipes' },
     { id: 'reactor_sim',  name: 'Calibrer le réacteur',      room: 'Réacteur',         x: 250,  y: 760,  type: 'simon' },
-    { id: 'scan',         name: 'Scanner médical',           room: 'Infirmerie',       x: 600,  y: 320,  type: 'scan' },
+    { id: 'scan',         name: 'Scanner médical',           room: 'Infirmerie',       x: 600,  y: 320,  type: 'medscan' },
     { id: 'fuel_up',      name: 'Remplir le moteur (haut)',  room: 'Moteur supérieur', x: 240,  y: 270,  type: 'hold' },
     { id: 'fuel_down',    name: 'Remplir le moteur (bas)',   room: 'Moteur inférieur', x: 240,  y: 1170, type: 'hold' },
     { id: 'asteroids',    name: 'Détruire les astéroïdes',   room: 'Armement',         x: 2040, y: 240,  type: 'target' },
     { id: 'shields_on',   name: 'Amorcer les boucliers',     room: 'Boucliers',        x: 2040, y: 1120, type: 'toggle' },
-    { id: 'o2_filter',    name: 'Nettoyer le filtre O2',     room: 'O2',               x: 1730, y: 380,  type: 'code' },
+    { id: 'o2_filter',    name: 'Refaire la tuyauterie O2',  room: 'O2',               x: 1730, y: 380,  type: 'pipes' },
     { id: 'caf_data',     name: 'Télécharger les données',   room: 'Cafétéria',        x: 1380, y: 200,  type: 'download' }
   ];
 
@@ -82,6 +82,46 @@
     o2Fix:      { x: 1680, y: 460 },   // Panneau O2
     commsFix:   { x: 1680, y: 1160 }   // Antenne comms
   };
+
+  // Conduits : déplacement caché pour saboteurs et ingénieurs.
+  // Les conduits d'un même réseau (net) sont interconnectés.
+  exports.VENTS = [
+    { id: 'v_engup',    x: 300,  y: 370,  net: 0 },
+    { id: 'v_med',      x: 700,  y: 420,  net: 0 },
+    { id: 'v_reactor',  x: 160,  y: 620,  net: 0 },
+    { id: 'v_engdown',  x: 300,  y: 1200, net: 1 },
+    { id: 'v_security', x: 540,  y: 1200, net: 1 },
+    { id: 'v_storage',  x: 980,  y: 1290, net: 1 },
+    { id: 'v_elec',     x: 800,  y: 650,  net: 2 },
+    { id: 'v_caf',      x: 1080, y: 460,  net: 2 },
+    { id: 'v_o2',       x: 1700, y: 480,  net: 2 },
+    { id: 'v_weapons',  x: 2040, y: 180,  net: 3 },
+    { id: 'v_nav',      x: 2150, y: 640,  net: 3 },
+    { id: 'v_shields',  x: 2040, y: 1190, net: 3 },
+    { id: 'v_comms',    x: 1600, y: 1180, net: 3 }
+  ];
+
+  exports.ventById = function (id) {
+    for (var i = 0; i < exports.VENTS.length; i++) if (exports.VENTS[i].id === id) return exports.VENTS[i];
+    return null;
+  };
+  exports.ventsInNet = function (net) {
+    return exports.VENTS.filter(function (v) { return v.net === net; });
+  };
+
+  // Rôles. team : crew / impostor / neutral
+  exports.ROLES = {
+    crew:      { name: 'Équipier',     team: 'crew',     color: '#6ea8ff', emoji: '👨‍🚀', desc: 'Accomplit les missions et démasque les saboteurs.' },
+    engineer:  { name: 'Ingénieur',    team: 'crew',     color: '#34d399', emoji: '🔧', desc: 'Équipier qui peut emprunter les conduits.' },
+    scientist: { name: 'Scientifique', team: 'crew',     color: '#a78bfa', emoji: '🩺', desc: 'Équipier qui consulte les constantes vitales.' },
+    impostor:  { name: 'Saboteur',     team: 'impostor', color: '#ff4757', emoji: '☠', desc: 'Élimine l’équipage et sabote le vaisseau.' },
+    metamorph: { name: 'Métamorphe',   team: 'impostor', color: '#e879f9', emoji: '🎭', desc: 'Saboteur qui prend l’apparence d’un autre joueur.' },
+    jester:    { name: 'Bouffon',      team: 'neutral',  color: '#fbbf24', emoji: '🃏', desc: 'Camp solo : gagne s’il se fait éjecter en réunion.' }
+  };
+  // Équipe "équipage" : compte pour les missions et la victoire de l'équipage
+  exports.isCrew = function (role) { return role === 'crew' || role === 'engineer' || role === 'scientist'; };
+  // Équipe "saboteurs"
+  exports.isImpostorTeam = function (role) { return role === 'impostor' || role === 'metamorph'; };
 
   exports.SABOTAGES = {
     lights:  { name: 'Lumières',       fix: 'lightsFix',  critical: false, desc: 'La vision des équipiers est réduite' },
@@ -100,14 +140,26 @@
     confirmEjects: true, // révèle le rôle des éjectés
     reactorTime: 40,     // s avant la fusion du réacteur
     o2Time: 45,          // s avant l'asphyxie
-    sabCooldown: 30      // s entre deux sabotages
+    sabCooldown: 30,     // s entre deux sabotages
+    engineers: 1,        // nombre d'ingénieurs (équipage)
+    scientists: 1,       // nombre de scientifiques (équipage)
+    metamorphs: 0,       // saboteurs métamorphes (sous-ensemble des saboteurs)
+    jesters: 0           // bouffons (camp neutre)
   };
 
   exports.LIMITS = {
     impostors: [1, 3], killCooldown: [10, 60], discussTime: [15, 120],
     voteTime: [15, 120], tasksPerPlayer: [2, 8], emergencies: [0, 3],
-    reactorTime: [20, 90], o2Time: [20, 90], sabCooldown: [10, 60]
+    reactorTime: [20, 90], o2Time: [20, 90], sabCooldown: [10, 60],
+    engineers: [0, 2], scientists: [0, 2], metamorphs: [0, 3], jesters: [0, 1]
   };
+
+  // Réglages des capacités de rôle
+  exports.VITALS_DURATION = 8;     // s d'affichage des constantes (Scientifique)
+  exports.VITALS_COOLDOWN = 25;    // s de recharge entre deux consultations
+  exports.SCAN_DURATION = 4.5;     // s du scan médical visuel
+  exports.SHIFT_DURATION = 12;     // s d'apparence d'emprunt (Métamorphe)
+  exports.SHIFT_COOLDOWN = 25;     // s de recharge entre deux métamorphoses
 
   exports.MIN_PLAYERS = 4;
   exports.MAX_PLAYERS = 12;

@@ -24,6 +24,16 @@ window.App = {
   emergenciesLeft: 0,
   killAt: 0,
 
+  // conduits / rôles spéciaux
+  inVent: null,       // id du conduit où je me trouve (ou null)
+  ventNet: [],        // conduits connectés [{id,x,y}]
+  scanning: false,    // je fais le scan médical (immobilisé)
+  scans: new Map(),   // playerId -> { x, y, endsAt } scans visibles en cours
+  vitalsReadyAt: 0,   // timestamp de fin de recharge des constantes
+  vitalsUntil: 0,     // timestamp de fin d'affichage des constantes
+  disguises: new Map(), // playerId -> { name, color, endsAt } métamorphoses en cours
+  shiftReadyAt: 0,    // timestamp de fin de recharge de métamorphose
+
   // état local
   pos: { x: 0, y: 0, dir: 1, moving: false },
   alive: true,
@@ -35,6 +45,10 @@ window.App = {
 App.me = () => App.players.get(App.you) || null;
 App.isHost = () => App.you === App.hostId;
 App.inGame = () => App.phase === 'play' || App.phase === 'meeting';
+App.isImpostor = () => App.role === 'impostor' || App.role === 'metamorph'; // équipe saboteurs
+App.isMetamorph = () => App.role === 'metamorph';
+App.canVent = () => App.alive && (App.isImpostor() || App.role === 'engineer');
+App.isScientist = () => App.role === 'scientist';
 
 const $ = (id) => document.getElementById(id);
 const distXY = (x1, y1, x2, y2) => Math.hypot(x1 - x2, y1 - y2);

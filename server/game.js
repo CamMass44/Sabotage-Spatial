@@ -95,6 +95,12 @@ function addPlayer(room, socket, name) {
     tasks: [],
     emergenciesLeft: 0,
     killAt: 0,
+    inVent: null,
+    scanUntil: 0,
+    vitalsReadyAt: 0,
+    shiftAs: null,
+    shiftUntil: 0,
+    shiftReadyAt: 0,
     connected: true,
     disconnectedAt: 0,
     lastChat: 0,
@@ -109,7 +115,7 @@ function removePlayer(room, p) {
   room.players.delete(p.id);
   // Ajuste la progression des missions si un équipier quitte définitivement
   if (room.phase === 'play' || room.phase === 'meeting') {
-    if (p.role === 'crew') {
+    if (SHARED.isCrew(p.role)) {
       room.taskTotal -= p.tasks.length;
       room.taskDone -= p.tasks.filter((t) => t.done).length;
       emitRoom(room, 'task:progress', { pct: taskPct(room) });
@@ -151,6 +157,7 @@ function addBot(room) {
     name, color,
     x: SHARED.SPAWN.x, y: SHARED.SPAWN.y, dir: 1, moving: false,
     alive: true, role: null, tasks: [], emergenciesLeft: 0, killAt: 0,
+    inVent: null, scanUntil: 0, vitalsReadyAt: 0, shiftAs: null, shiftUntil: 0, shiftReadyAt: 0,
     connected: true, disconnectedAt: 0, lastChat: 0, lastMarker: 0,
     isBot: true, bot: {}
   };
@@ -214,15 +221,36 @@ function startGame(room) {
   const nImp = Math.min(room.settings.impostors, 3, maxImp);
   ps.forEach((p, i) => { p.role = i < nImp ? 'impostor' : 'crew'; });
 
+  // Métamorphes : sous-ensemble des saboteurs
+  const impPool = ps.filter((p) => p.role === 'impostor');
+  const nMeta = Math.max(0, Math.min(room.settings.metamorphs || 0, impPool.length));
+  for (let i = 0; i < nMeta; i++) impPool[i].role = 'metamorph';
+
+  // Rôles tirés parmi l'équipage : Bouffon (neutre), Ingénieur, Scientifique
+  const crewPool = ps.filter((p) => p.role === 'crew');
+  let idx = 0;
+  const nJest = Math.max(0, Math.min(room.settings.jesters || 0, crewPool.length));
+  for (let i = 0; i < nJest; i++) crewPool[idx++].role = 'jester';
+  const nEng = Math.max(0, Math.min(room.settings.engineers || 0, crewPool.length - idx));
+  for (let i = 0; i < nEng; i++) crewPool[idx++].role = 'engineer';
+  const nSci = Math.max(0, Math.min(room.settings.scientists || 0, crewPool.length - idx));
+  for (let i = 0; i < nSci; i++) crewPool[idx++].role = 'scientist';
+
   const now = Date.now();
   room.taskTotal = 0;
   room.taskDone = 0;
   for (const p of ps) {
     p.alive = true;
+    p.inVent = null;
+    p.scanUntil = 0;
+    p.vitalsReadyAt = 0;
+    p.shiftAs = null;
+    p.shiftUntil = 0;
+    p.shiftReadyAt = now + 10000;
     p.tasks = shuffle(SHARED.TASKS.slice())
       .slice(0, room.settings.tasksPerPlayer)
       .map((t) => ({ id: t.id, done: false }));
-    if (p.role === 'crew') room.taskTotal += p.tasks.length;
+    if (SHARED.isCrew(p.role)) room.taskTotal += p.tasks.length;
     p.emergenciesLeft = room.settings.emergencies;
     p.killAt = now + 10000;
     if (p.isBot) p.bot = {};
@@ -235,15 +263,16 @@ function startGame(room) {
   room.sabCooldownUntil = now + 20000;
   room.noMeetingUntil = now + 15000;
 
-  const partners = ps.filter((p) => p.role === 'impostor').map((p) => ({ id: p.id, name: p.name }));
+  const partners = ps.filter((p) => SHARED.isImpostorTeam(p.role)).map((p) => ({ id: p.id, name: p.name }));
   for (const p of ps) {
     sendTo(room, p, 'game:start', {
       role: p.role,
-      partners: p.role === 'impostor' ? partners : [],
+      partners: SHARED.isImpostorTeam(p.role) ? partners : [],
       tasks: p.tasks,
       settings: room.settings,
       x: p.x, y: p.y,
       killAt: p.killAt,
+      shiftReadyAt: p.shiftReadyAt,
       emergenciesLeft: p.emergenciesLeft
     });
   }
@@ -256,26 +285,42 @@ function buildResync(room, p) {
     phase: room.phase,
     settings: room.settings,
     role: p.role,
-    partners: p.role === 'impostor'
-      ? [...room.players.values()].filter((q) => q.role === 'impostor').map((q) => ({ id: q.id, name: q.name }))
+    partners: SHARED.isImpostorTeam(p.role)
+      ? [...room.players.values()].filter((q) => SHARED.isImpostorTeam(q.role)).map((q) => ({ id: q.id, name: q.name }))
       : [],
     tasks: p.tasks,
     taskPct: taskPct(room),
     x: p.x, y: p.y,
     alive: p.alive,
     killAt: p.killAt,
+    shiftReadyAt: p.shiftReadyAt,
     emergenciesLeft: p.emergenciesLeft,
     sab: sabPayload(room),
     bodies: room.bodies,
     markers: room.markers,
+    inVent: p.inVent,
+    ventNet: p.inVent ? SHARED.ventsInNet(SHARED.ventById(p.inVent).net).map((v) => ({ id: v.id, x: v.x, y: v.y })) : null,
+    scans: [...room.players.values()].filter((q) => q.scanUntil).map((q) => ({ playerId: q.id, x: q.x, y: q.y, endsAt: q.scanUntil })),
+    shifts: [...room.players.values()].filter((q) => q.shiftAs).map((q) => disguisePayload(room, q)),
     meeting: room.meeting ? {
       stage: room.meeting.stage,
       endsAt: room.meeting.endsAt,
       reporter: room.meeting.reporter,
       bodyOf: room.meeting.bodyOf,
+      myVote: room.meeting.votes[p.id] || null,
       voted: Object.keys(room.meeting.votes),
       deadIds: [...room.players.values()].filter((q) => !q.alive).map((q) => q.id)
     } : null
+  };
+}
+
+function disguisePayload(room, q) {
+  const target = room.players.get(q.shiftAs);
+  return {
+    playerId: q.id,
+    name: target ? target.name : q.name,
+    color: target ? target.color : q.color,
+    endsAt: q.shiftUntil
   };
 }
 
@@ -295,13 +340,13 @@ function endGame(room, winner, reason) {
 function checkWin(room) {
   if (room.phase !== 'play' && room.phase !== 'meeting') return false;
   const ps = [...room.players.values()];
-  const imps = ps.filter((p) => p.alive && p.role === 'impostor');
-  const crew = ps.filter((p) => p.alive && p.role === 'crew');
+  const imps = ps.filter((p) => p.alive && SHARED.isImpostorTeam(p.role));
+  const others = ps.filter((p) => p.alive && !SHARED.isImpostorTeam(p.role)); // équipage + neutres
   if (imps.length === 0) {
     endGame(room, 'crew', 'Tous les saboteurs ont été démasqués');
     return true;
   }
-  if (imps.length >= crew.length) {
+  if (imps.length >= others.length) {
     endGame(room, 'impostors', 'Les saboteurs sont en majorité');
     return true;
   }
@@ -323,7 +368,7 @@ function completeTask(room, player, taskId) {
   const def = SHARED.TASKS.find((t) => t.id === task.id);
   if (!def || dist(player, def) > 140) return false;
   task.done = true;
-  if (player.role === 'crew') {
+  if (SHARED.isCrew(player.role)) {
     room.taskDone++;
     emitRoom(room, 'task:progress', { pct: taskPct(room) });
     checkWin(room);
@@ -332,12 +377,15 @@ function completeTask(room, player, taskId) {
 }
 
 function doKill(room, killer, target) {
-  if (room.phase !== 'play' || killer.role !== 'impostor' || !killer.alive) return false;
+  if (room.phase !== 'play' || !SHARED.isImpostorTeam(killer.role) || !killer.alive) return false;
+  if (killer.inVent) return false;
   const now = Date.now();
   if (now < killer.killAt) return false;
-  if (!target || !target.alive || target.role !== 'crew') return false;
+  // On peut éliminer n'importe qui hors de l'équipe saboteurs, sauf en conduit
+  if (!target || !target.alive || SHARED.isImpostorTeam(target.role) || target.inVent) return false;
   if (dist(killer, target) > 120) return false;
   target.alive = false;
+  if (target.scanUntil) { target.scanUntil = 0; emitRoom(room, 'scan:off', { playerId: target.id }); }
   const body = { id: rid(6), playerId: target.id, color: target.color, x: target.x, y: target.y };
   room.bodies.push(body);
   killer.killAt = now + room.settings.killCooldown * 1000;
@@ -359,19 +407,21 @@ function tryReport(room, player) {
 function castVote(room, player, target) {
   if (room.phase !== 'meeting') return;
   const m = room.meeting;
-  if (!m || m.stage !== 'voting' || !player.alive || m.votes[player.id]) return;
-  if (target !== 'skip') {
-    const tp = room.players.get(target);
-    if (!tp || !tp.alive) return;
+  // Vote ouvert toute la réunion, modifiable jusqu'à la fin du temps
+  if (!m || m.stage !== 'open' || !player.alive) return;
+  if (target === 'clear') { delete m.votes[player.id]; }
+  else {
+    if (target !== 'skip') {
+      const tp = room.players.get(target);
+      if (!tp || !tp.alive) return;
+    }
+    m.votes[player.id] = target;
   }
-  m.votes[player.id] = target;
   emitRoom(room, 'meeting:votes', { voted: Object.keys(m.votes) });
-  const aliveConnected = [...room.players.values()].filter((p) => p.alive && p.connected);
-  if (aliveConnected.every((p) => m.votes[p.id])) m.endsAt = 0; // dépouillement au prochain tick
 }
 
 function startSab(room, player, type) {
-  if (room.phase !== 'play' || player.role !== 'impostor' || !player.alive || room.sab) return;
+  if (room.phase !== 'play' || !SHARED.isImpostorTeam(player.role) || !player.alive || room.sab) return;
   const now = Date.now();
   if (now < room.sabCooldownUntil) return;
   const def = SHARED.SABOTAGES[type];
@@ -398,6 +448,80 @@ function botChat(room, p, text) {
   });
 }
 
+/* ---- Conduits (saboteurs + ingénieurs) ---- */
+
+function canVent(player) {
+  return player.alive && (SHARED.isImpostorTeam(player.role) || player.role === 'engineer');
+}
+
+function enterVent(room, player, ventId) {
+  if (room.phase !== 'play' || !canVent(player) || player.inVent) return;
+  const vent = SHARED.ventById(ventId);
+  if (!vent || dist(player, vent) > 130) return;
+  player.inVent = vent.id;
+  player.x = vent.x; player.y = vent.y;
+  player.moving = false;
+  sendTo(room, player, 'vent:in', {
+    ventId: vent.id,
+    net: SHARED.ventsInNet(vent.net).map((v) => ({ id: v.id, x: v.x, y: v.y }))
+  });
+}
+
+function moveVent(room, player, ventId) {
+  if (room.phase !== 'play' || !player.inVent) return;
+  const cur = SHARED.ventById(player.inVent);
+  const target = SHARED.ventById(ventId);
+  if (!cur || !target || target.net !== cur.net || target.id === cur.id) return;
+  player.inVent = target.id;
+  player.x = target.x; player.y = target.y;
+  sendTo(room, player, 'vent:moved', { ventId: target.id });
+}
+
+function exitVent(room, player) {
+  if (!player.inVent) return;
+  const vent = SHARED.ventById(player.inVent);
+  player.inVent = null;
+  if (vent) { player.x = vent.x; player.y = vent.y; }
+  sendTo(room, player, 'vent:out', { x: player.x, y: player.y });
+}
+
+/* ---- Scan médical visuel (mission Infirmerie) ---- */
+
+function beginScan(room, player, taskId) {
+  if (room.phase !== 'play' || !player.alive || player.inVent || player.scanUntil) return false;
+  const task = player.tasks.find((t) => t.id === taskId && !t.done);
+  if (!task) return false;
+  const def = SHARED.TASKS.find((t) => t.id === task.id);
+  if (!def || def.type !== 'medscan' || dist(player, def) > 120) return false;
+  player.x = def.x; player.y = def.y; player.moving = false;
+  player.scanUntil = Date.now() + SHARED.SCAN_DURATION * 1000;
+  player.scanTask = taskId;
+  emitRoom(room, 'scan:on', { playerId: player.id, x: def.x, y: def.y, endsAt: player.scanUntil });
+  return true;
+}
+
+/* ---- Métamorphose (Métamorphe) ---- */
+
+function shiftInto(room, player, targetId) {
+  if (room.phase !== 'play' || player.role !== 'metamorph' || !player.alive || player.inVent) return false;
+  const now = Date.now();
+  if (player.shiftAs || now < player.shiftReadyAt) return false;
+  const target = room.players.get(targetId);
+  if (!target || target.id === player.id || !target.alive) return false;
+  player.shiftAs = target.id;
+  player.shiftUntil = now + SHARED.SHIFT_DURATION * 1000;
+  player.shiftReadyAt = player.shiftUntil + SHARED.SHIFT_COOLDOWN * 1000;
+  emitRoom(room, 'shift', disguisePayload(room, player));
+  return true;
+}
+
+function unshift(room, player, broadcast) {
+  if (!player.shiftAs) return;
+  player.shiftAs = null;
+  player.shiftUntil = 0;
+  if (broadcast !== false) emitRoom(room, 'shift:off', { playerId: player.id });
+}
+
 // API exposée à l'IA des bots
 const botApi = { completeTask, doKill, tryReport, castVote, startSab, fixSab, botChat };
 
@@ -415,10 +539,16 @@ function startMeeting(room, reporter, bodyOf) {
     room.sab.remaining = room.sab.endsAt - now;
     room.sab.endsAt = null;
   }
+  // Interrompt conduits, scans et métamorphoses en cours
+  for (const p of room.players.values()) {
+    p.inVent = null;
+    if (p.scanUntil) { p.scanUntil = 0; emitRoom(room, 'scan:off', { playerId: p.id }); }
+    if (p.shiftAs) unshift(room, p);
+  }
   placeAtSpawn(room);
   room.meetingSeq = (room.meetingSeq || 0) + 1;
   room.meeting = {
-    stage: 'discussion',
+    stage: 'open',  // vote ouvert et modifiable pendant toute la réunion
     endsAt: now + room.settings.discussTime * 1000,
     votes: {},
     reporter: reporter.id,
@@ -428,7 +558,7 @@ function startMeeting(room, reporter, bodyOf) {
     reporter: { id: reporter.id, name: reporter.name },
     bodyOf: bodyOf || null,
     deadIds: [...room.players.values()].filter((p) => !p.alive).map((p) => p.id),
-    stage: 'discussion',
+    stage: 'open',
     endsAt: room.meeting.endsAt
   });
   broadcastState(room);
@@ -451,11 +581,16 @@ function tallyVotes(room) {
   if (best && !tie && bestN > skip) ejected = best;
 
   let wasImpostor = null;
+  let ejectedRole = null;
   if (ejected) {
     const p = room.players.get(ejected);
     if (p) {
       p.alive = false;
-      if (room.settings.confirmEjects) wasImpostor = p.role === 'impostor';
+      if (p.shiftAs) unshift(room, p);
+      ejectedRole = p.role;
+      if (room.settings.confirmEjects) wasImpostor = SHARED.isImpostorTeam(p.role);
+      // Le Bouffon gagne s'il se fait éjecter
+      if (p.role === 'jester') room.jesterWin = p.id;
     }
   }
   m.stage = 'reveal';
@@ -463,6 +598,7 @@ function tallyVotes(room) {
   emitRoom(room, 'meeting:result', {
     ejected,
     wasImpostor,
+    jester: ejectedRole === 'jester',
     counts,
     skip,
     voters: Object.keys(m.votes).length
@@ -472,6 +608,13 @@ function tallyVotes(room) {
 function endMeeting(room) {
   const now = Date.now();
   room.meeting = null;
+  // Victoire du Bouffon éjecté (prioritaire sur les autres conditions)
+  if (room.jesterWin) {
+    const j = room.players.get(room.jesterWin);
+    room.jesterWin = null;
+    endGame(room, 'jester', `Le Bouffon ${j ? j.name : ''} s'est fait éjecter… et gagne en solo !`);
+    return;
+  }
   if (checkWin(room)) return;
   room.phase = 'play';
   if (room.sab && room.sab.remaining != null) {
@@ -480,7 +623,8 @@ function endMeeting(room) {
     emitRoom(room, 'sab', sabPayload(room));
   }
   for (const p of room.players.values()) {
-    if (p.role === 'impostor') p.killAt = now + room.settings.killCooldown * 1000;
+    if (SHARED.isImpostorTeam(p.role)) p.killAt = now + room.settings.killCooldown * 1000;
+    p.shiftReadyAt = now + 8000;
   }
   room.noMeetingUntil = now + 15000;
   placeAtSpawn(room);
@@ -520,16 +664,27 @@ function tick(room) {
       endGame(room, 'impostors', `Sabotage non réparé à temps (${name})`);
       return;
     }
+    // Achèvement des scans médicaux
+    for (const p of room.players.values()) {
+      if (p.scanUntil && now >= p.scanUntil) {
+        const taskId = p.scanTask;
+        p.scanUntil = 0;
+        p.scanTask = null;
+        completeTask(room, p, taskId);
+        emitRoom(room, 'scan:off', { playerId: p.id });
+        sendTo(room, p, 'scan:complete', { taskId });
+      }
+    }
+    // Fin des métamorphoses
+    for (const p of room.players.values()) {
+      if (p.shiftAs && now >= p.shiftUntil) unshift(room, p);
+    }
   }
 
   if (room.phase === 'meeting' && room.meeting && now >= room.meeting.endsAt) {
     const m = room.meeting;
-    if (m.stage === 'discussion') {
-      m.stage = 'voting';
-      m.endsAt = now + room.settings.voteTime * 1000;
-      emitRoom(room, 'meeting:stage', { stage: 'voting', endsAt: m.endsAt });
-    } else if (m.stage === 'voting') {
-      tallyVotes(room);
+    if (m.stage === 'open') {
+      tallyVotes(room);          // fin du temps : on dépouille le dernier vote de chacun
     } else if (m.stage === 'reveal') {
       endMeeting(room);
     }
@@ -545,7 +700,8 @@ function tick(room) {
         y: Math.round(p.y),
         d: p.dir,
         m: p.moving ? 1 : 0,
-        a: p.alive ? 1 : 0
+        a: p.alive ? 1 : 0,
+        v: p.inVent ? 1 : 0
       }))
     });
   }
@@ -672,6 +828,10 @@ function attach(io, socket) {
       p.alive = true;
       p.role = null;
       p.tasks = [];
+      p.inVent = null;
+      p.scanUntil = 0;
+      p.shiftAs = null;
+      p.shiftUntil = 0;
       p.x = SHARED.SPAWN.x; p.y = SHARED.SPAWN.y;
     }
     if (room.players.size === 0) { destroyRoom(room); return; }
@@ -681,12 +841,14 @@ function attach(io, socket) {
     room.markers = [];
     room.meeting = null;
     room.sab = null;
+    room.jesterWin = null;
     broadcastState(room);
   }));
 
   socket.on('p:move', safe((data) => {
     const { room, player } = getCtx(socket);
     if (!room || !player || room.phase !== 'play') return;
+    if (player.inVent || player.scanUntil) return; // immobile en conduit ou pendant un scan
     const x = Number(data.x), y = Number(data.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     player.x = Math.max(0, Math.min(SHARED.WORLD.w, x));
@@ -699,6 +861,42 @@ function attach(io, socket) {
     const { room, player } = getCtx(socket);
     if (!room || !player) return cb({ ok: false });
     cb({ ok: completeTask(room, player, data.taskId) });
+  }));
+
+  socket.on('scan:begin', safe((data, cb) => {
+    const { room, player } = getCtx(socket);
+    if (!room || !player) return cb({ ok: false });
+    cb({ ok: beginScan(room, player, data.taskId) });
+  }));
+
+  socket.on('vent:enter', safe((data) => {
+    const { room, player } = getCtx(socket);
+    if (!room || !player) return;
+    enterVent(room, player, data.ventId);
+  }));
+
+  socket.on('vent:move', safe((data) => {
+    const { room, player } = getCtx(socket);
+    if (!room || !player) return;
+    moveVent(room, player, data.ventId);
+  }));
+
+  socket.on('vent:exit', safe(() => {
+    const { room, player } = getCtx(socket);
+    if (!room || !player) return;
+    exitVent(room, player);
+  }));
+
+  socket.on('shift', safe((data, cb) => {
+    const { room, player } = getCtx(socket);
+    if (!room || !player) return cb({ ok: false });
+    cb({ ok: shiftInto(room, player, data.targetId) });
+  }));
+
+  socket.on('shift:revert', safe(() => {
+    const { room, player } = getCtx(socket);
+    if (!room || !player) return;
+    unshift(room, player);
   }));
 
   socket.on('kill', safe((data) => {
@@ -744,11 +942,11 @@ function attach(io, socket) {
     const channel = data.channel === 'imp' ? 'imp' : 'global';
     const inGame = room.phase === 'play' || room.phase === 'meeting';
     if (inGame && !player.alive) return; // les éliminés ne peuvent plus écrire
-    if (channel === 'imp' && player.role !== 'impostor') return;
+    if (channel === 'imp' && !SHARED.isImpostorTeam(player.role)) return;
     const msg = { channel, from: player.id, name: player.name, color: player.color, text, t: now };
     if (channel === 'imp') {
       for (const p of room.players.values()) {
-        if (p.role === 'impostor') sendTo(room, p, 'chat', msg);
+        if (SHARED.isImpostorTeam(p.role)) sendTo(room, p, 'chat', msg);
       }
     } else {
       emitRoom(room, 'chat', msg);

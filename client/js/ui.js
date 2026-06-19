@@ -6,6 +6,10 @@ window.UI = (() => {
   let meetingTimerIv = null;
   let sabBannerIv = null;
 
+  // Réglages numériques modifiables par l'hôte (discussTime = durée de réunion unique)
+  const SETTINGS_KEYS = ['impostors', 'killCooldown', 'discussTime', 'tasksPerPlayer',
+    'emergencies', 'engineers', 'scientists', 'metamorphs', 'jesters'];
+
   /* ---------------- Écrans ---------------- */
   function show(name) {
     for (const s of ['home', 'lobby', 'game', 'end']) {
@@ -47,7 +51,7 @@ window.UI = (() => {
     const host = App.isHost();
     $('settings-who').textContent = host ? '(tu es l’hôte)' : '(réservé à l’hôte)';
     if (App.settings) {
-      for (const key of ['impostors', 'killCooldown', 'discussTime', 'voteTime', 'tasksPerPlayer', 'emergencies']) {
+      for (const key of SETTINGS_KEYS) {
         const input = $('set-' + key);
         if (document.activeElement !== input) input.value = App.settings[key];
         input.disabled = !host;
@@ -68,17 +72,9 @@ window.UI = (() => {
 
   function sendSettings() {
     if (!App.isHost()) return;
-    App.socket.emit('room:settings', {
-      settings: {
-        impostors: +$('set-impostors').value,
-        killCooldown: +$('set-killCooldown').value,
-        discussTime: +$('set-discussTime').value,
-        voteTime: +$('set-voteTime').value,
-        tasksPerPlayer: +$('set-tasksPerPlayer').value,
-        emergencies: +$('set-emergencies').value,
-        confirmEjects: $('set-confirmEjects').checked
-      }
-    });
+    const settings = { confirmEjects: $('set-confirmEjects').checked };
+    for (const key of SETTINGS_KEYS) settings[key] = +$('set-' + key).value;
+    App.socket.emit('room:settings', { settings });
   }
 
   /* ---------------- Chat ---------------- */
@@ -168,22 +164,135 @@ window.UI = (() => {
   }
 
   /* ---------------- Bannières ---------------- */
+  const ROLE_SUB = {
+    impostor: 'Élimine les équipiers sans te faire repérer. Utilise les conduits pour disparaître.',
+    crew: 'Accomplis tes missions et démasque les saboteurs.',
+    engineer: 'Équipier — tu peux emprunter les conduits comme un saboteur. Pratique… et suspect si on te voit.',
+    scientist: 'Équipier — consulte les constantes vitales pour savoir qui est encore en vie.',
+    metamorph: 'Saboteur — prends l’apparence d’un joueur pour brouiller les accusations. Tue, sabote, mens.',
+    jester: 'Camp solo — ton seul but : te faire éjecter en réunion. Sois louche… mais pas trop !'
+  };
+  const ROLE_TITLE = {
+    impostor: 'SABOTEUR', crew: 'ÉQUIPIER', engineer: 'INGÉNIEUR', scientist: 'SCIENTIFIQUE',
+    metamorph: 'MÉTAMORPHE', jester: 'BOUFFON'
+  };
+
   function roleBanner() {
     const b = $('role-banner');
-    const imp = App.role === 'impostor';
-    b.className = imp ? 'impostor' : 'crew';
-    let sub = imp
-      ? 'Élimine les équipiers sans te faire repérer.'
-      : 'Accomplis tes missions et démasque les saboteurs.';
-    if (imp && App.partners.length > 1) {
+    const team = SHARED.ROLES[App.role] ? SHARED.ROLES[App.role].team : 'crew';
+    b.className = team === 'impostor' ? 'impostor' : (team === 'neutral' ? 'jester' : 'crew');
+    let sub = ROLE_SUB[App.role] || ROLE_SUB.crew;
+    if (App.isImpostor() && App.partners.length > 1) {
       const others = App.partners.filter((p) => p.id !== App.you).map((p) => p.name).join(', ');
       sub += ` Complice(s) : ${others}`;
     }
-    b.innerHTML = `${imp ? 'SABOTEUR' : 'ÉQUIPIER'}<small>${escapeHtml(sub)}</small>`;
+    b.innerHTML = `${ROLE_TITLE[App.role] || 'ÉQUIPIER'}<small>${escapeHtml(sub)}</small>`;
     b.classList.remove('hidden');
     b.style.opacity = '1';
     setTimeout(() => { b.style.opacity = '0'; }, 3500);
     setTimeout(() => b.classList.add('hidden'), 4500);
+  }
+
+  /* ---------------- Contrôles de rôle (conduit / constantes / métamorphose) ---------------- */
+  function updateRoleControls() {
+    $('b-vent').classList.toggle('hidden', !App.canVent());
+    $('b-vitals').classList.toggle('hidden', !(App.isScientist() && App.alive));
+    $('b-shift').classList.toggle('hidden', !(App.isMetamorph() && App.alive));
+  }
+
+  /* ---------------- Sélecteur de métamorphose ---------------- */
+  function openShiftPicker() {
+    if (!App.isMetamorph() || !App.alive) return;
+    if (Date.now() < App.shiftReadyAt) { toast('Métamorphose en recharge'); return; }
+    const list = $('shift-list');
+    list.innerHTML = '';
+    for (const p of App.players.values()) {
+      if (p.id === App.you || !p.alive || !p.connected) continue;
+      const el = document.createElement('button');
+      el.className = 'btn shift-opt';
+      el.innerHTML = `<span class="dot" style="background:${SHARED.COLORS[p.color]}"></span> ${escapeHtml(p.name)}`;
+      el.onclick = () => {
+        App.socket.emit('shift', { targetId: p.id }, (res) => { if (res && !res.ok) toast('Métamorphose impossible'); });
+        closeShiftPicker();
+      };
+      list.appendChild(el);
+    }
+    App.overlayOpen = true;
+    $('overlay-shift').classList.remove('hidden');
+  }
+  function closeShiftPicker() {
+    $('overlay-shift').classList.add('hidden');
+    if ($('overlay-minigame').classList.contains('hidden') &&
+        $('overlay-map').classList.contains('hidden')) App.overlayOpen = false;
+  }
+
+  function showVentControls() {
+    const wrap = $('vent-controls');
+    const arrows = $('vent-arrows');
+    arrows.innerHTML = '';
+    const cur = App.ventNet.find((v) => v.id === App.inVent);
+    for (const v of App.ventNet) {
+      if (v.id === App.inVent) continue;
+      const btn = document.createElement('button');
+      btn.className = 'btn vent-arrow';
+      // flèche directionnelle vers le conduit cible
+      let arrow = '→';
+      if (cur) {
+        const dx = v.x - cur.x, dy = v.y - cur.y;
+        arrow = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? '➡' : '⬅') : (dy > 0 ? '⬇' : '⬆');
+      }
+      const room = SHARED.roomAt(v.x, v.y);
+      btn.innerHTML = `${arrow} <span>${room ? escapeHtml(room.name) : 'Conduit'}</span>`;
+      btn.onclick = () => App.socket.emit('vent:move', { ventId: v.id });
+      arrows.appendChild(btn);
+    }
+    wrap.classList.remove('hidden');
+  }
+
+  function hideVentControls() {
+    $('vent-controls').classList.add('hidden');
+  }
+
+  /* ---------------- Constantes vitales (Scientifique) ---------------- */
+  let vitalsIv = null;
+  function openVitals() {
+    if (!App.isScientist() || !App.alive) return;
+    const now = Date.now();
+    if (now < App.vitalsReadyAt) {
+      toast(`Constantes en recharge (${Math.ceil((App.vitalsReadyAt - now) / 1000)}s)`);
+      return;
+    }
+    App.vitalsUntil = now + SHARED.VITALS_DURATION * 1000;
+    App.vitalsReadyAt = App.vitalsUntil + SHARED.VITALS_COOLDOWN * 1000;
+    App.overlayOpen = true;
+    $('overlay-vitals').classList.remove('hidden');
+    renderVitals();
+    clearInterval(vitalsIv);
+    vitalsIv = setInterval(() => {
+      if (Date.now() >= App.vitalsUntil) { closeVitals(); return; }
+      renderVitals();
+    }, 500);
+  }
+  function renderVitals() {
+    const list = $('vitals-list');
+    list.innerHTML = '';
+    const remain = Math.max(0, Math.ceil((App.vitalsUntil - Date.now()) / 1000));
+    for (const p of App.players.values()) {
+      if (!p.connected && p.isBot !== true && App.phase === 'play') { /* garde quand même */ }
+      const el = document.createElement('div');
+      el.className = 'vital-row ' + (p.alive ? 'alive' : 'dead');
+      el.innerHTML = `<span class="dot" style="background:${SHARED.COLORS[p.color]}"></span>
+        <span class="vname">${escapeHtml(p.name)}</span>
+        <span class="vstatus">${p.alive ? '💚 En vie' : '💀 Mort'}</span>`;
+      list.appendChild(el);
+    }
+    $('overlay-vitals').querySelector('h3').textContent = `🩺 Constantes vitales (${remain}s)`;
+  }
+  function closeVitals() {
+    clearInterval(vitalsIv);
+    $('overlay-vitals').classList.add('hidden');
+    if ($('overlay-minigame').classList.contains('hidden') &&
+        $('overlay-map').classList.contains('hidden')) App.overlayOpen = false;
   }
 
   function refreshSabBanner() {
@@ -218,12 +327,11 @@ window.UI = (() => {
     Sfx.meeting();
 
     App.meeting = {
-      stage: data.stage,
+      stage: data.stage || 'open',
       endsAt: data.endsAt,
       voted: new Set(data.voted || []),
-      myVote: null,
-      deadIds: new Set(data.deadIds || []),
-      selected: null
+      myVote: data.myVote || null,
+      deadIds: new Set(data.deadIds || [])
     };
     $('overlay-meeting').classList.remove('hidden');
     // Intègre le chat au panneau de réunion (sinon l'overlay bloque la saisie)
@@ -248,40 +356,36 @@ window.UI = (() => {
     if (!m) return;
     const wrap = $('meeting-players');
     wrap.innerHTML = '';
-    const canVote = m.stage === 'voting' && App.alive && !m.myVote;
+    const canVote = m.stage === 'open' && App.alive; // vote ouvert et modifiable
     for (const p of App.players.values()) {
       const dead = m.deadIds.has(p.id) || !p.alive;
       const el = document.createElement('div');
       el.className = 'vote-card' + (dead ? ' dead' : '') +
         (!dead && canVote ? ' votable' : '') +
-        (m.selected === p.id ? ' selected' : '');
+        (m.myVote === p.id ? ' selected' : '');
       el.innerHTML = `<span class="dot" style="background:${SHARED.COLORS[p.color]}"></span>
         <span>${escapeHtml(p.name)}${p.id === App.you ? ' (toi)' : ''}</span>`;
       if (counts && counts[p.id]) {
         el.innerHTML += `<span class="count-badge">${counts[p.id]}</span>`;
+      } else if (m.myVote === p.id) {
+        el.innerHTML += `<span class="voted-badge">★ ton vote</span>`;
       } else if (m.voted.has(p.id) && !dead) {
         el.innerHTML += `<span class="voted-badge">✓ a voté</span>`;
       }
       if (!dead && canVote) {
         el.style.cursor = 'pointer';
         el.onclick = () => {
-          if (m.selected === p.id) {
-            m.myVote = p.id;
-            App.socket.emit('meeting:vote', { target: p.id });
-            chatSys(`Tu as voté contre ${p.name}.`);
-            m.selected = null;
-            renderMeetingPlayers();
-          } else {
-            m.selected = p.id;
-            renderMeetingPlayers();
-            toast('Re-clique pour confirmer ton vote contre ' + p.name, 2000);
-          }
+          m.myVote = p.id;
+          App.socket.emit('meeting:vote', { target: p.id });
+          renderMeetingPlayers();
         };
       }
       wrap.appendChild(el);
     }
-    $('btn-skip').disabled = !canVote;
-    $('btn-skip').textContent = m.myVote ? '✓ Vote enregistré' : '🤐 S\'abstenir';
+    const skip = $('btn-skip');
+    skip.disabled = !canVote;
+    skip.classList.toggle('selected', m.myVote === 'skip');
+    skip.textContent = m.myVote === 'skip' ? '★ Abstention choisie' : '🤐 S\'abstenir';
   }
 
   function runMeetingTimer() {
@@ -291,20 +395,12 @@ window.UI = (() => {
       const m = App.meeting;
       if (!m) { clearInterval(meetingTimerIv); return; }
       const s = Math.max(0, Math.ceil((m.endsAt - Date.now()) / 1000));
-      const label = m.stage === 'discussion' ? '💬 Discussion' : m.stage === 'voting' ? '🗳️ Vote' : 'Résultats';
-      el.textContent = `${label} — ${s}s`;
+      if (m.stage === 'reveal') { el.textContent = `Résultats — ${s}s`; return; }
+      el.textContent = `🗳️ Débat & vote — ${s}s`;
+      el.classList.toggle('urgent', s <= 10);
     };
     tick();
     meetingTimerIv = setInterval(tick, 250);
-  }
-
-  function meetingStage(data) {
-    if (!App.meeting) return;
-    App.meeting.stage = data.stage;
-    App.meeting.endsAt = data.endsAt;
-    if (data.stage === 'voting') chatSys('Le vote est ouvert !');
-    renderMeetingPlayers();
-    runMeetingTimer();
   }
 
   function meetingVotes(data) {
@@ -324,7 +420,8 @@ window.UI = (() => {
       const p = App.players.get(data.ejected);
       const name = p ? p.name : '???';
       let txt = `🚀 ${name} a été éjecté·e dans l'espace.`;
-      if (data.wasImpostor === true) txt += ' C\'était un saboteur ! ☠';
+      if (data.jester) txt += ' 🃏 C\'était le Bouffon… il gagne !';
+      else if (data.wasImpostor === true) txt += ' C\'était un saboteur ! ☠';
       else if (data.wasImpostor === false) txt += ' Ce n\'était PAS un saboteur…';
       r.textContent = txt;
       if (p) { p.alive = false; App.meeting.deadIds.add(p.id); }
@@ -439,17 +536,23 @@ window.UI = (() => {
     closeMap();
     closeSabPicker();
     show('end');
-    const crew = data.winner === 'crew';
-    $('end-title').textContent = crew ? '🛠️ VICTOIRE DES ÉQUIPIERS' : '☠ VICTOIRE DES SABOTEURS';
+    const titles = {
+      crew: '🛠️ VICTOIRE DES ÉQUIPIERS',
+      impostors: '☠ VICTOIRE DES SABOTEURS',
+      jester: '🃏 VICTOIRE DU BOUFFON'
+    };
+    $('end-title').textContent = titles[data.winner] || titles.impostors;
     $('end-title').className = data.winner;
     $('end-reason').textContent = data.reason;
     const roles = $('end-roles');
     roles.innerHTML = '';
     for (const r of data.roles) {
+      const def = SHARED.ROLES[r.role] || SHARED.ROLES.crew;
+      const cls = def.team === 'impostor' ? 'imp' : (def.team === 'neutral' ? 'neutral' : '');
       const el = document.createElement('div');
       el.className = 'r';
       el.innerHTML = `<span class="dot" style="background:${SHARED.COLORS[r.color]}"></span>
-        <span class="${r.role === 'impostor' ? 'imp' : ''}">${escapeHtml(r.name)} — ${r.role === 'impostor' ? 'Saboteur ☠' : 'Équipier'}</span>`;
+        <span class="${cls}">${escapeHtml(r.name)} — ${def.emoji} ${def.name}</span>`;
       roles.appendChild(el);
     }
     $('btn-again').classList.toggle('hidden', !App.isHost());
@@ -493,7 +596,7 @@ window.UI = (() => {
     $('btn-lobby-mic').onclick = () => Voice.toggleMic();
     $('btn-addbot').onclick = () => App.socket.emit('room:addBot');
     $('btn-rembot').onclick = () => App.socket.emit('room:removeBot');
-    for (const key of ['impostors', 'killCooldown', 'discussTime', 'voteTime', 'tasksPerPlayer', 'emergencies']) {
+    for (const key of SETTINGS_KEYS) {
       $('set-' + key).addEventListener('change', sendSettings);
     }
     $('set-confirmEjects').addEventListener('change', sendSettings);
@@ -520,6 +623,15 @@ window.UI = (() => {
     $('b-report').onclick = () => Actions.report();
     $('b-kill').onclick = () => Actions.kill();
     $('b-sab').onclick = () => { if (!$('b-sab').disabled) openSabPicker(); };
+    $('b-vent').onclick = () => Actions.vent();
+    $('b-vitals').onclick = () => openVitals();
+    $('b-shift').onclick = () => {
+      if (App.disguises.has(App.you)) App.socket.emit('shift:revert');
+      else openShiftPicker();
+    };
+    $('vent-exit').onclick = () => App.socket.emit('vent:exit');
+    $('vitals-close').onclick = () => closeVitals();
+    $('shift-cancel').onclick = () => closeShiftPicker();
     $('b-map').onclick = () => openMap();
     $('b-mic').onclick = () => Voice.toggleMic();
     $('map-close').onclick = () => closeMap();
@@ -545,13 +657,12 @@ window.UI = (() => {
     });
     $('sab-cancel').onclick = () => closeSabPicker();
 
-    // Réunion
+    // Réunion : s'abstenir (modifiable tant que le temps n'est pas écoulé)
     $('btn-skip').onclick = () => {
       const m = App.meeting;
-      if (!m || m.stage !== 'voting' || !App.alive || m.myVote) return;
+      if (!m || m.stage !== 'open' || !App.alive) return;
       m.myVote = 'skip';
       App.socket.emit('meeting:vote', { target: 'skip' });
-      chatSys('Tu t\'es abstenu.');
       renderMeetingPlayers();
     };
 
@@ -568,8 +679,10 @@ window.UI = (() => {
   return {
     show, refreshLobby, chatAdd, chatSys, updateChatAccess, toggleChat,
     refreshTasks, setProgress, roleBanner, refreshSabBanner,
-    meetingOpen, meetingStage, meetingVotes, meetingResult, meetingClose,
+    meetingOpen, meetingVotes, meetingResult, meetingClose,
     openMap, closeMap, drawMap, openSabPicker, closeSabPicker,
+    updateRoleControls, showVentControls, hideVentControls, openVitals, closeVitals,
+    openShiftPicker, closeShiftPicker,
     endScreen, initEvents
   };
 })();

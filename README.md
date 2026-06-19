@@ -19,11 +19,25 @@ Puis ouvre **http://localhost:3000**. Crée un salon, copie le lien d'invitation
 - **4 à 12 joueurs**, paramètres personnalisables par l'hôte (nombre de saboteurs, délais, missions, réunions d'urgence, révélation des rôles…)
 - **Compatible mobile et PC** : ZQSD/WASD/flèches au clavier, joystick virtuel tactile
 - **Carte vue de dessus** : 13 pièces reliées par des couloirs, collisions, champ de vision limité
-- **Missions** : 8 mini-jeux différents (câbles, code, simon, astéroïdes, scan, carburant, boucliers, téléchargement) avec barre de progression globale
+- **Missions** : mini-jeux variés avec barre de progression globale. **On peut quitter un mini-jeu en cours (« Plus tard ») et le reprendre exactement où il en était.**
+  - 🪨 **Astéroïdes** — petit shoot'em up : pilote ton vaisseau, esquive/détruis les astéroïdes et atteins le bout du parcours (15 s)
+  - 📡 **Téléchargement** — retrouve l'extrait de signal radio dans le signal complet (glisse pour aligner)
+  - 🛡️ **Boucliers** — reproduis le motif lumineux affiché
+  - ⛽ **Carburant** — stoppe la jauge oscillante pile dans la zone verte (3 fois)
+  - 🚰 **Tuyauterie** (Navigation, O2) — fais pivoter les tuyaux pour relier l'entrée à la sortie
+  - 💡 **Interrupteurs** (réparation lumières) — trouve par déduction la bonne combinaison ouvert/fermé
+  - Plus : câbles, simon (réacteur), digicode, scan médical visuel
+- **Conduits** 🛳️ : réseau de conduits reliant les pièces ; saboteurs et **Ingénieurs** s'y déplacent à couvert (invisibles, intuables)
+- **Rôles** (activables et dosables par l'hôte dans l'écran « Rôles présents ») :
+  - 🔧 **Ingénieur** (équipage) — emprunte les conduits
+  - 🩺 **Scientifique** (équipage) — consulte les constantes vitales (qui est vivant/mort), avec recharge
+  - 🎭 **Métamorphe** (saboteur) — prend l'apparence (pseudo + couleur) d'un joueur quelques secondes pour brouiller les accusations
+  - 🃏 **Bouffon** (camp solo neutre) — gagne **s'il se fait éjecter en réunion**
 - **Saboteurs** : élimination avec délai de recharge, 4 sabotages (lumières, réacteur ☢, oxygène 🫧, communications 📡 — les deux critiques font gagner les saboteurs s'ils ne sont pas réparés à temps), chat textuel privé, les complices se reconnaissent (pseudo rouge)
 - **Salle caméras** : n'importe quel joueur peut surveiller librement tout le vaisseau depuis la console de la salle caméras (désactivée pendant un sabotage des communications)
+- **Minimap** permanente en bas de l'écran : ta position et tes missions en temps réel
 - **Signalement** : marqueurs « événement suspect » posables sur la carte, visibles par tous
-- **Réunions** : signalement de corps ou bouton d'urgence → discussion, vote (avec abstention), éjection à la pluralité, égalité = personne
+- **Réunions** : signalement de corps ou bouton d'urgence → **un seul minuteur de débat & vote** : on vote quand on veut, on peut changer d'avis ; à la fin du temps, c'est le dernier vote qui compte (aucun vote = abstention). Éjection à la pluralité, égalité = personne
 - **Éliminés** : deviennent spectateurs (vision totale, traversent les murs, peuvent finir leurs missions) mais **perdent le chat textuel et vocal** ; leur avatar disparaît pour les vivants
 - **Chat textuel** global + canal saboteurs, **chat vocal** WebRTC (mesh, bouton micro)
 - **Reconnexion automatique** : un joueur déconnecté a 60 s pour revenir (rafraîchissement compris), sa session est restaurée
@@ -49,7 +63,10 @@ L'IA est volontairement simple (fichier [server/bots.js](server/bots.js)) : c'es
 | Utiliser / Réparer / Caméras / Urgence | `E` ou `Espace` | bouton UTILISER |
 | Signaler un corps | `R` | bouton SIGNALER |
 | Tuer (saboteur) | `T` | bouton TUER |
-| Saboter (saboteur) | `V` | bouton SABOTER |
+| Saboter (saboteur) | `B` | bouton SABOTER |
+| Conduit (saboteur / ingénieur) | `V` | bouton CONDUIT |
+| Constantes vitales (scientifique) | `F` | bouton CONSTANTES |
+| Métamorphose (métamorphe) | `G` | bouton MÉTAMORPHE |
 | Carte + marqueurs | `C` | bouton CARTE |
 | Fermer / quitter caméras | `Échap` | boutons ✕ |
 

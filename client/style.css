@@ -148,6 +148,7 @@ input:focus { border-color: #4a7dff; }
 #role-banner small { display: block; font-size: 15px; letter-spacing: 1px; font-weight: 500; color: #d7def2; text-shadow: none; margin-top: 8px; }
 #role-banner.crew { color: #6ea8ff; }
 #role-banner.impostor { color: #ff4757; }
+#role-banner.jester { color: #fbbf24; }
 
 #ghost-banner {
   position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
@@ -171,6 +172,23 @@ input:focus { border-color: #4a7dff; }
 .action-btn.kill { border-color: #ff4757; background: #43101bdd; }
 .action-btn.sab { border-color: #c026d3; }
 .action-btn.report { border-color: #fb923c; }
+.action-btn.vent { border-color: #60a5fa; background: #15233edd; }
+.action-btn.vitals { border-color: #a78bfa; }
+.action-btn.shift { border-color: #e879f9; background: #2a1733dd; }
+#btns.btns-hidden { display: none; }
+
+/* Contrôles de conduit */
+#vent-controls {
+  position: absolute; right: 14px; bottom: 14px; z-index: 22;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+  background: #10162bdd; border: 2px solid #60a5fa; border-radius: 14px; padding: 10px;
+}
+#vent-arrows { display: flex; flex-direction: column; gap: 6px; }
+.vent-arrow {
+  display: flex; align-items: center; gap: 8px; min-width: 150px;
+  border-color: #3a4670; font-size: 14px;
+}
+.vent-arrow span { flex: 1; text-align: left; }
 
 .round-btn {
   position: absolute;
@@ -257,6 +275,53 @@ input:focus { border-color: #4a7dff; }
 .sab-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
 .sab-opt small { color: #8b97bd; font-weight: 400; }
 
+/* Sélecteur de métamorphose */
+.shift-box { width: min(360px, 92vw); display: flex; flex-direction: column; gap: 8px; border-color: #e879f9; }
+.shift-box h3 { color: #f0abfc; text-align: center; }
+#shift-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.shift-opt { display: flex; align-items: center; gap: 8px; text-align: left; }
+.shift-opt .dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #0007; }
+
+/* Réglages des rôles présents (salon) */
+.roles-title { margin-top: 8px; border-top: 1px solid #2b3554; padding-top: 12px; }
+.roles-hint { text-align: left; margin-bottom: 2px; }
+.role-row {
+  display: flex; align-items: center; gap: 10px;
+  background: #0d1226; border: 1px solid #2b3554; border-left: 4px solid var(--rc, #3a4670);
+  border-radius: 10px; padding: 7px 10px;
+}
+.role-row .role-ic { font-size: 20px; }
+.role-row .role-info { flex: 1; display: flex; flex-direction: column; line-height: 1.25; }
+.role-row .role-info b { color: var(--rc, #e8ecf8); font-size: 14px; }
+.role-row .role-info small { color: #8b97bd; font-size: 11.5px; }
+.role-row input[type="number"] { width: 56px; }
+
+/* Mini-jeux : actions (Plus tard / Abandonner) */
+.mg-actions { display: flex; gap: 8px; margin-top: 12px; }
+.mg-actions .btn { flex: 1; }
+.mg-later { border-color: #4a7dff; }
+
+/* Constantes vitales (Scientifique) */
+.vitals-box { width: min(380px, 92vw); display: flex; flex-direction: column; gap: 8px; border-color: #a78bfa; }
+.vitals-box h3 { color: #c4b5fd; text-align: center; }
+#vitals-list { display: flex; flex-direction: column; gap: 5px; max-height: 60vh; overflow-y: auto; }
+.vital-row {
+  display: flex; align-items: center; gap: 8px;
+  background: #0d1226; border: 1px solid #2b3554; border-radius: 8px; padding: 7px 10px; font-size: 14px;
+}
+.vital-row .dot { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; }
+.vital-row .vname { flex: 1; }
+.vital-row.dead { opacity: .6; }
+.vital-row.dead .vstatus { color: #ff8a96; }
+.vital-row.alive .vstatus { color: #4ade80; }
+
+/* Minimap persistante */
+#minimap {
+  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
+  z-index: 8; border: 1px solid #3a4670; border-radius: 8px;
+  background: #0a0e1ccc; opacity: .82; pointer-events: none;
+}
+
 .map-box { width: min(1000px, 96vw); }
 .map-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
 .map-head h3 { flex: 0 0 auto; }
@@ -271,6 +336,8 @@ input:focus { border-color: #4a7dff; }
 }
 .meeting-box h2 { color: #ffd166; text-align: center; }
 #meeting-timer { text-align: center; font-size: 15px; font-weight: 700; color: #9fb4e8; }
+#meeting-timer.urgent { color: #ff6b78; }
+#btn-skip.selected { border-color: #ffd166; background: #2b2410; color: #ffd166; }
 #meeting-players {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px;
   max-height: 32vh; overflow-y: auto;
@@ -297,10 +364,12 @@ input:focus { border-color: #4a7dff; }
 .end-card { width: min(460px, 94vw); display: flex; flex-direction: column; gap: 14px; text-align: center; }
 #end-title.crew { color: #6ea8ff; }
 #end-title.impostors { color: #ff4757; }
+#end-title.jester { color: #fbbf24; }
 #end-roles { display: flex; flex-direction: column; gap: 5px; font-size: 14.5px; }
 #end-roles .r { display: flex; align-items: center; gap: 8px; justify-content: center; }
 #end-roles .dot { width: 16px; height: 16px; border-radius: 50%; }
 #end-roles .imp { color: #ff8a96; font-weight: 700; }
+#end-roles .neutral { color: #fcd34d; font-weight: 700; }
 
 /* ====== Toast ====== */
 #toast {
@@ -361,6 +430,41 @@ input:focus { border-color: #4a7dff; }
 .switch.on::after { top: 4px; bottom: auto; background: #22c55e; }
 @keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
 .shake { animation: shake .3s; }
+
+/* ====== Nouveaux mini-jeux ====== */
+.mg-cv { width: 100%; max-width: 360px; display: block; margin: 0 auto; border-radius: 10px; background: #070b18; touch-action: none; cursor: pointer; }
+.mg-mini-label { font-size: 11px; color: #8b97bd; text-transform: uppercase; letter-spacing: 1px; margin: 6px 0 3px; text-align: center; }
+.mg-snip, .mg-big { width: 100%; display: block; border-radius: 8px; background: #0a0e1c; touch-action: none; cursor: ew-resize; }
+
+/* Boucliers : reproduction de motif */
+.pat-wrap { display: flex; justify-content: space-around; gap: 16px; }
+.pat-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.pat-cell { width: 26px; height: 26px; border-radius: 5px; background: #0d1226; border: 1px solid #2b3554; }
+.pat-cell.on { background: #38bdf8; box-shadow: 0 0 8px #38bdf8aa; border-color: #7dd3fc; }
+.pat-cell.live { cursor: pointer; }
+.pat-cell.live:hover { border-color: #4a7dff; }
+
+/* Carburant : jauge à stopper */
+.gauge-area { display: flex; align-items: center; justify-content: center; gap: 24px; }
+.gauge { position: relative; width: 46px; height: 200px; background: #0a0e1c; border: 2px solid #34406b; border-radius: 10px; overflow: hidden; }
+.gauge-zone { position: absolute; left: 0; right: 0; background: #22c55e44; border-top: 2px solid #22c55e; border-bottom: 2px solid #22c55e; }
+.gauge-needle { position: absolute; left: -3px; right: -3px; height: 6px; background: #facc15; box-shadow: 0 0 8px #facc15; }
+.gauge-needle.ok { background: #22c55e; box-shadow: 0 0 10px #22c55e; }
+.gauge-needle.bad { background: #ff4757; box-shadow: 0 0 10px #ff4757; }
+.gauge-side { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.gauge-pips { display: flex; gap: 8px; }
+.gpip { width: 16px; height: 16px; border-radius: 50%; background: #0d1226; border: 2px solid #34406b; }
+.gpip.on { background: #22c55e; border-color: #4ade80; }
+
+/* Tuyauterie */
+.pipe-cv { width: 100%; max-width: 360px; display: block; margin: 0 auto; border-radius: 10px; background: #0a0e1c; cursor: pointer; touch-action: none; }
+
+/* Interrupteurs : combinaison */
+.combo-row { display: flex; justify-content: center; gap: 16px; margin: 10px 0; }
+.combo-cell { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.combo-lab { font-size: 13px; color: #8b97bd; font-weight: 700; }
+.combo-test { width: 100%; }
+.combo-fb { text-align: center; color: #9fb4e8; font-size: 14px; min-height: 18px; margin-top: 8px; }
 
 /* ====== Mobile ====== */
 @media (max-width: 640px) {

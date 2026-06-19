@@ -16,10 +16,13 @@ const Input = (() => {
       if (e.code === 'KeyE' || e.code === 'Space') { e.preventDefault(); Actions.use(); }
       else if (e.code === 'KeyR') Actions.report();
       else if (e.code === 'KeyT') Actions.kill();
+      else if (e.code === 'KeyV') Actions.vent();
+      else if (e.code === 'KeyF') { if (App.isScientist() && App.alive) UI.openVitals(); }
+      else if (e.code === 'KeyG') { if (App.isMetamorph() && App.alive) UI.openShiftPicker(); }
       else if (e.code === 'KeyC') {
         if ($('overlay-map').classList.contains('hidden')) UI.openMap(); else UI.closeMap();
       }
-      else if (e.code === 'KeyV') { if (!$('b-sab').classList.contains('hidden') && !$('b-sab').disabled) UI.openSabPicker(); }
+      else if (e.code === 'KeyB') { if (!$('b-sab').classList.contains('hidden') && !$('b-sab').disabled) UI.openSabPicker(); }
     }
     if (e.code === 'Escape') {
       UI.closeMap(); UI.closeSabPicker(); MiniGames.close(false);
@@ -91,8 +94,9 @@ const Actions = (() => {
   }
 
   function compute() {
-    ctx = { use: null, reportable: false, killTarget: null };
+    ctx = { use: null, reportable: false, killTarget: null, ventNear: null };
     if (App.phase !== 'play' || App.meeting || App.mode === 'cams') return ctx;
+    if (App.inVent || App.scanning) return ctx; // immobilisé : aucune action contextuelle
 
     // Réparation de sabotage (prioritaire, vivants uniquement)
     if (App.alive && App.sab) {
@@ -101,7 +105,7 @@ const Actions = (() => {
       if (near(pt, 110)) ctx.use = { kind: 'fix', type: App.sab.type };
     }
     // Mission à portée (les fantômes peuvent encore aider)
-    if (!ctx.use && !(App.sab && App.sab.type === 'comms' && App.role !== 'impostor')) {
+    if (!ctx.use && !(App.sab && App.sab.type === 'comms' && !App.isImpostor())) {
       for (const t of App.tasks) {
         if (t.done) continue;
         const def = SHARED.TASKS.find((d) => d.id === t.id);
@@ -113,15 +117,20 @@ const Actions = (() => {
     // Bouton d'urgence
     if (!ctx.use && App.alive && near(SHARED.POINTS.emergency, 100)) ctx.use = { kind: 'emergency' };
 
+    // Conduit à portée (saboteurs + ingénieurs)
+    if (App.canVent()) {
+      for (const v of SHARED.VENTS) { if (near(v, 70)) { ctx.ventNear = v; break; } }
+    }
+
     // Signalement de corps
     if (App.alive) {
       ctx.reportable = App.bodies.some((b) => near(b, 140));
     }
-    // Cible d'élimination
+    // Cible d'élimination (pas les complices, ni les joueurs en conduit)
     if (App.alive && App.role === 'impostor') {
       let best = null, bestD = 110;
       for (const p of App.players.values()) {
-        if (p.id === App.you || !p.alive || !p.connected) continue;
+        if (p.id === App.you || !p.alive || !p.connected || p.vent) continue;
         if (App.partners.some((q) => q.id === p.id)) continue;
         const d = distXY(App.pos.x, App.pos.y, p.x, p.y);
         if (d < bestD) { bestD = d; best = p; }
@@ -135,19 +144,25 @@ const Actions = (() => {
     const inGameScreen = !$('screen-game').classList.contains('hidden');
     if (!inGameScreen) return;
     compute();
-    const bUse = $('b-use'), bReport = $('b-report'), bKill = $('b-kill'), bSab = $('b-sab');
+    const bUse = $('b-use'), bReport = $('b-report'), bKill = $('b-kill'),
+          bSab = $('b-sab'), bVent = $('b-vent'), bVitals = $('b-vitals'), bShift = $('b-shift');
+
+    // En conduit : seuls les contrôles de conduit sont visibles
+    $('btns').classList.toggle('btns-hidden', !!App.inVent);
+    if (App.inVent) return;
 
     let useLabel = 'UTILISER';
     if (ctx.use) {
       if (ctx.use.kind === 'fix') useLabel = 'RÉPARER';
       else if (ctx.use.kind === 'cams') useLabel = 'CAMÉRAS';
       else if (ctx.use.kind === 'emergency') useLabel = 'URGENCE';
+      else if (ctx.use.kind === 'task' && ctx.use.def.type === 'medscan') useLabel = 'SCANNER';
     }
     bUse.firstChild.textContent = useLabel;
-    bUse.disabled = !ctx.use;
+    bUse.disabled = !ctx.use || App.scanning;
     bReport.disabled = !ctx.reportable;
 
-    const imp = App.role === 'impostor' && App.alive;
+    const imp = App.isImpostor() && App.alive;
     bKill.classList.toggle('hidden', !imp);
     bSab.classList.toggle('hidden', !imp);
     if (imp) {
@@ -161,6 +176,30 @@ const Actions = (() => {
       }
       bSab.disabled = !!App.sab || App.phase !== 'play' || !!App.meeting;
     }
+
+    // Métamorphose (Métamorphe)
+    const meta = App.isMetamorph() && App.alive;
+    bShift.classList.toggle('hidden', !meta);
+    if (meta) {
+      const disguised = App.disguises.has(App.you);
+      const cd = Math.ceil((App.shiftReadyAt - Date.now()) / 1000);
+      if (disguised) { bShift.disabled = false; bShift.firstChild.textContent = 'REVENIR'; }
+      else if (cd > 0) { bShift.disabled = true; bShift.firstChild.textContent = `MORPH (${cd})`; }
+      else { bShift.disabled = false; bShift.firstChild.textContent = 'MÉTAMORPHE'; }
+    }
+
+    // Conduit
+    bVent.classList.toggle('hidden', !App.canVent());
+    if (App.canVent()) bVent.disabled = !ctx.ventNear;
+
+    // Constantes (Scientifique)
+    const sci = App.isScientist() && App.alive;
+    bVitals.classList.toggle('hidden', !sci);
+    if (sci) {
+      const cd = Math.ceil((App.vitalsReadyAt - Date.now()) / 1000);
+      bVitals.disabled = cd > 0;
+      bVitals.firstChild.textContent = cd > 0 ? `CONST. (${cd})` : 'CONSTANTES';
+    }
   }
 
   async function use() {
@@ -168,19 +207,25 @@ const Actions = (() => {
     if (!ctx.use || App.overlayOpen) return;
     const u = ctx.use;
     if (u.kind === 'task') {
-      const ok = await MiniGames.open(u.def.type, u.def.name, u.def.room);
+      if (u.def.type === 'medscan') {
+        App.socket.emit('scan:begin', { taskId: u.task.id }, (res) => {
+          if (res && !res.ok) toast('Impossible de lancer le scan ici.');
+        });
+        return;
+      }
+      const ok = await MiniGames.open(u.def.type, u.def.name, u.def.room, 'task_' + u.task.id);
       if (ok) {
         App.socket.emit('task:done', { taskId: u.task.id }, (res) => {
           if (res && res.ok) {
             u.task.done = true;
             UI.refreshTasks();
             Sfx.task();
-            if (App.role === 'impostor') UI.chatSys('Mission simulée — les autres t’ont vu « travailler ».');
+            if (App.isImpostor()) UI.chatSys('Mission simulée — les autres t’ont vu « travailler ».');
           }
         });
       }
     } else if (u.kind === 'fix') {
-      const ok = await MiniGames.open(FIX_GAMES[u.type], FIX_TITLES[u.type], 'Réparation d’urgence');
+      const ok = await MiniGames.open(FIX_GAMES[u.type], FIX_TITLES[u.type], 'Réparation d’urgence', 'fix_' + u.type);
       if (ok) App.socket.emit('sab:fix', { type: u.type });
     } else if (u.kind === 'cams') {
       if (App.sab && App.sab.type === 'comms') { toast('📡 Caméras hors service (sabotage en cours)'); return; }
@@ -205,7 +250,14 @@ const Actions = (() => {
     }
   }
 
-  return { use, report, kill, updateButtons, compute };
+  function vent() {
+    if (App.inVent) { App.socket.emit('vent:exit'); return; }
+    if (!App.canVent()) return;
+    compute();
+    if (ctx.ventNear) App.socket.emit('vent:enter', { ventId: ctx.ventNear.id });
+  }
+
+  return { use, report, kill, vent, updateButtons, compute };
 })();
 
 /* ================= Moteur ================= */
@@ -542,6 +594,18 @@ const Game = (() => {
     circle(1936, 1034, 8, '#38bdf8');
     circle(2144, 1206, 8, '#38bdf8');
 
+    // — Couvercles de conduits (grilles métalliques au sol)
+    for (const v of SHARED.VENTS) {
+      m.save();
+      m.translate(v.x, v.y);
+      m.fillStyle = 'rgba(0,0,0,0.3)';
+      m.beginPath(); m.ellipse(0, 7, 22, 9, 0, 0, Math.PI * 2); m.fill();
+      box(-20, -16, 40, 30, '#3a4358', '#11151f');
+      m.strokeStyle = '#586079'; m.lineWidth = 3;
+      for (let k = -10; k <= 10; k += 6) { m.beginPath(); m.moveTo(k, -13); m.lineTo(k, 11); m.stroke(); }
+      m.restore();
+    }
+
     // — Noms des pièces (par-dessus le décor)
     m.textAlign = 'center';
     m.font = 'bold 24px Segoe UI';
@@ -552,6 +616,75 @@ const Game = (() => {
       m.fillText(r.name.toUpperCase(), r.x + r.w / 2, r.y + 35);
     }
   })();
+
+  /* ---- Minimap persistante (fond statique pré-rendu) ---- */
+  const MM_SCALE = 0.072;                          // 2400*0.072 ≈ 173 px de large
+  const MM_W = Math.round(SHARED.WORLD.w * MM_SCALE);
+  const MM_H = Math.round(SHARED.WORLD.h * MM_SCALE);
+  const mmBg = document.createElement('canvas');
+  mmBg.width = MM_W; mmBg.height = MM_H;
+  (function buildMinimap() {
+    const c = mmBg.getContext('2d');
+    c.scale(MM_SCALE, MM_SCALE);
+    for (const r of SHARED.CORRIDORS) { c.fillStyle = '#243054'; c.fillRect(r.x, r.y, r.w, r.h); }
+    for (const r of SHARED.ROOMS) {
+      c.fillStyle = '#33406e'; c.fillRect(r.x, r.y, r.w, r.h);
+      c.strokeStyle = '#4a5680'; c.lineWidth = 6; c.strokeRect(r.x, r.y, r.w, r.h);
+    }
+  })();
+
+  const mmCanvas = document.getElementById('minimap');
+  const mm = mmCanvas.getContext('2d');
+  mmCanvas.width = MM_W; mmCanvas.height = MM_H;
+  mmCanvas.style.width = MM_W + 'px';
+  mmCanvas.style.height = MM_H + 'px';
+
+  function drawMinimap() {
+    if ($('screen-game').classList.contains('hidden')) { return; }
+    mm.clearRect(0, 0, MM_W, MM_H);
+    mm.drawImage(mmBg, 0, 0);
+    const t = performance.now() / 1000;
+    const pulse = 0.5 + Math.sin(t * 5) * 0.5;
+    const sx = (x) => x * MM_SCALE, sy = (y) => y * MM_SCALE;
+
+    // Missions à faire (les miennes)
+    const commsDown = App.sab && App.sab.type === 'comms' && !App.isImpostor();
+    if (!commsDown) {
+      for (const task of App.tasks) {
+        if (task.done) continue;
+        const def = SHARED.TASKS.find((d) => d.id === task.id);
+        if (!def) continue;
+        mm.fillStyle = `rgba(250,204,21,${0.55 + pulse * 0.45})`;
+        mm.beginPath(); mm.arc(sx(def.x), sy(def.y), 3.5, 0, Math.PI * 2); mm.fill();
+      }
+    }
+    // Sabotage actif
+    if (App.sab) {
+      const pt = SHARED.POINTS[SHARED.SABOTAGES[App.sab.type].fix];
+      mm.fillStyle = `rgba(217,38,56,${0.5 + pulse * 0.5})`;
+      mm.beginPath(); mm.arc(sx(pt.x), sy(pt.y), 4, 0, Math.PI * 2); mm.fill();
+    }
+    // Bouton d'urgence
+    mm.fillStyle = '#7a1622';
+    mm.beginPath(); mm.arc(sx(SHARED.POINTS.emergency.x), sy(SHARED.POINTS.emergency.y), 2.5, 0, Math.PI * 2); mm.fill();
+
+    // Spectateurs / caméras : toutes les positions
+    if (!App.alive || App.mode === 'cams') {
+      for (const p of App.players.values()) {
+        if (p.id === App.you || !p.alive || p.vent) continue;
+        mm.fillStyle = SHARED.COLORS[p.color];
+        mm.beginPath(); mm.arc(sx(p.x), sy(p.y), 2.5, 0, Math.PI * 2); mm.fill();
+      }
+    }
+    // Ma position
+    const me = App.me();
+    mm.fillStyle = '#fff';
+    mm.beginPath(); mm.arc(sx(App.pos.x), sy(App.pos.y), 4.5, 0, Math.PI * 2); mm.fill();
+    if (me) {
+      mm.fillStyle = SHARED.COLORS[me.color];
+      mm.beginPath(); mm.arc(sx(App.pos.x), sy(App.pos.y), 3, 0, Math.PI * 2); mm.fill();
+    }
+  }
 
   function resize() {
     DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -641,7 +774,7 @@ const Game = (() => {
 
   function update(dt) {
     if (App.phase !== 'play' || App.meeting) return;
-    if (App.overlayOpen || App.mode === 'cams') {
+    if (App.overlayOpen || App.mode === 'cams' || App.inVent || App.scanning) {
       if (App.pos.moving) { App.pos.moving = false; Net.sendMove(); }
       interpolate(dt);
       return;
@@ -707,7 +840,7 @@ const Game = (() => {
     const pulse = 0.6 + Math.sin(t * 5) * 0.4;
 
     // Objectifs de mission (les miens, non terminés)
-    const commsDown = App.sab && App.sab.type === 'comms' && App.role !== 'impostor';
+    const commsDown = App.sab && App.sab.type === 'comms' && !App.isImpostor();
     if (App.phase === 'play' && !commsDown) {
       for (const task of App.tasks) {
         if (task.done) continue;
@@ -740,6 +873,46 @@ const Game = (() => {
       g.font = 'bold 13px Segoe UI';
       g.fillText(mk.name, mk.x, mk.y + 28);
     }
+    // Conduits : surbrillance pour ceux qui peuvent les emprunter
+    if (App.canVent()) {
+      for (const v of SHARED.VENTS) {
+        const here = distXY(App.pos.x, App.pos.y, v.x, v.y) <= 70;
+        g.strokeStyle = here ? `rgba(96,165,250,${0.7 + pulse * 0.3})` : 'rgba(96,165,250,0.35)';
+        g.lineWidth = here ? 4 : 2.5;
+        g.beginPath(); g.arc(v.x, v.y, 22 + (here ? pulse * 4 : 0), 0, Math.PI * 2); g.stroke();
+        if (here) {
+          g.fillStyle = '#cfe0ff'; g.font = 'bold 12px Segoe UI'; g.textAlign = 'center';
+          g.fillText('CONDUIT', v.x, v.y - 28);
+        }
+      }
+    }
+
+    // Scans médicaux en cours (anneaux montants, visibles par tous)
+    for (const [, s] of App.scans) {
+      const prog = 1 - Math.max(0, (s.endsAt - Date.now()) / (SHARED.SCAN_DURATION * 1000));
+      g.save();
+      g.strokeStyle = '#22d3ee';
+      for (let r = 0; r < 3; r++) {
+        const phase = (prog * 2 + r / 3) % 1;
+        g.globalAlpha = 0.5 * (1 - phase);
+        g.lineWidth = 3;
+        g.beginPath(); g.ellipse(s.x, s.y, 30, 12, 0, 0, Math.PI * 2);
+        g.stroke();
+        g.translate(0, 0);
+      }
+      g.globalAlpha = 0.8;
+      g.fillStyle = '#22d3ee'; g.font = '16px Segoe UI'; g.textAlign = 'center';
+      g.fillText('🩺', s.x, s.y - 50);
+      g.restore();
+      // barre de scan qui monte le long du corps
+      g.save();
+      g.globalAlpha = 0.6;
+      g.strokeStyle = '#7defff'; g.lineWidth = 3;
+      const sy = s.y + 12 - prog * 60;
+      g.beginPath(); g.moveTo(s.x - 26, sy); g.lineTo(s.x + 26, sy); g.stroke();
+      g.restore();
+    }
+
     // Corps
     for (const b of App.bodies) drawBody(g, b);
 
@@ -748,6 +921,7 @@ const Game = (() => {
     const drawList = [];
     for (const p of App.players.values()) {
       if (!p.connected && App.phase === 'play') continue;
+      if (p.vent) continue;                                  // joueurs en conduit : invisibles
       const isMe = p.id === App.you;
       const x = isMe ? App.pos.x : p.x;
       const y = isMe ? App.pos.y : p.y;
@@ -758,27 +932,31 @@ const Game = (() => {
     drawList.sort((a, b) => a.y - b.y);
     for (const d of drawList) {
       const ghost = !d.p.alive;
-      drawDude(g, d.x, d.y, d.p.color, d.isMe ? App.pos.dir : d.p.dir, {
+      // Métamorphose : apparence (couleur + pseudo) empruntée
+      const disg = App.disguises.get(d.p.id);
+      const color = disg ? disg.color : d.p.color;
+      const dispName = disg ? disg.name : d.p.name;
+      drawDude(g, d.x, d.y, color, d.isMe ? App.pos.dir : d.p.dir, {
         moving: d.isMe ? App.pos.moving : d.p.moving,
         ghost,
         alpha: ghost ? 0.45 : 1
       });
       // pseudo
-      const impVision = App.role === 'impostor' && App.partners.some((q) => q.id === d.p.id);
+      const impVision = App.isImpostor() && App.partners.some((q) => q.id === d.p.id);
       g.font = 'bold 14px Segoe UI';
       g.textAlign = 'center';
       g.lineWidth = 3;
       g.strokeStyle = 'rgba(0,0,0,0.7)';
-      g.strokeText(d.p.name, d.x, d.y - 44);
+      g.strokeText(dispName, d.x, d.y - 44);
       g.fillStyle = impVision ? '#ff4757' : (ghost ? '#9aa7cc' : '#fff');
-      g.fillText(d.p.name, d.x, d.y - 44);
+      g.fillText(dispName, d.x, d.y - 44);
     }
 
     // Champ de vision
     g.setTransform(DPR, 0, 0, DPR, 0, 0);
     if (!fullVision) {
-      let vis = App.role === 'impostor' ? 430 : 330;
-      if (App.sab && App.sab.type === 'lights' && App.role !== 'impostor') vis = 130;
+      let vis = App.isImpostor() ? 430 : 330;
+      if (App.sab && App.sab.type === 'lights' && !App.isImpostor()) vis = 130;
       const r = vis * z;
       const grad = g.createRadialGradient(W / 2, H / 2, r * 0.55, W / 2, H / 2, r);
       grad.addColorStop(0, 'rgba(4,6,12,0)');
@@ -806,6 +984,7 @@ const Game = (() => {
     try {
       update(dt);
       render();
+      drawMinimap();
     } catch (e) { /* ne casse pas la boucle */ }
     requestAnimationFrame(loop);
   }

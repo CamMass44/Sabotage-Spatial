@@ -31,6 +31,14 @@ window.Net = (() => {
     App.alive = true;
     App.mode = 'play';
     App.killAt = 0;
+    App.inVent = null;
+    App.ventNet = [];
+    App.scanning = false;
+    App.scans = new Map();
+    App.vitalsReadyAt = 0;
+    App.vitalsUntil = 0;
+    App.disguises = new Map();
+    App.shiftReadyAt = 0;
     UI.refreshSabBanner();
   }
 
@@ -122,6 +130,7 @@ window.Net = (() => {
       App.tasks = d.tasks;
       App.settings = d.settings;
       App.killAt = d.killAt || 0;
+      App.shiftReadyAt = d.shiftReadyAt || 0;
       App.emergenciesLeft = d.emergenciesLeft;
       App.alive = true;
       App.pos.x = d.x; App.pos.y = d.y;
@@ -133,6 +142,7 @@ window.Net = (() => {
       UI.refreshTasks();
       UI.setProgress(0);
       UI.updateChatAccess();
+      UI.updateRoleControls();
       UI.roleBanner();
       UI.chatSys('La partie commence. Bonne chance !');
       Game.onGameStart();
@@ -153,11 +163,19 @@ window.Net = (() => {
       App.bodies = d.bodies || [];
       App.markers = d.markers || [];
       App.pos.x = d.x; App.pos.y = d.y;
+      App.inVent = d.inVent || null;
+      App.ventNet = d.ventNet || [];
+      App.shiftReadyAt = d.shiftReadyAt || 0;
+      App.scans = new Map((d.scans || []).map((s) => [s.playerId, { x: s.x, y: s.y, endsAt: s.endsAt }]));
+      App.scanning = App.scans.has(App.you);
+      App.disguises = new Map((d.shifts || []).map((s) => [s.playerId, { name: s.name, color: s.color, endsAt: s.endsAt }]));
       UI.show('game');
       UI.refreshTasks();
       UI.setProgress(App.taskPct);
       UI.updateChatAccess();
+      UI.updateRoleControls();
       UI.refreshSabBanner();
+      if (App.inVent) UI.showVentControls();
       $('ghost-banner').classList.toggle('hidden', App.alive);
       if (d.meeting) {
         UI.meetingOpen({
@@ -166,7 +184,8 @@ window.Net = (() => {
           reporter: App.players.get(d.meeting.reporter) || { name: '???' },
           bodyOf: d.meeting.bodyOf,
           deadIds: d.meeting.deadIds,
-          voted: d.meeting.voted
+          voted: d.meeting.voted,
+          myVote: d.meeting.myVote
         });
       }
       Game.onGameStart();
@@ -180,9 +199,10 @@ window.Net = (() => {
         p.alive = !!s.a;
         p.dir = s.d;
         p.moving = !!s.m;
+        p.vent = !!s.v;
         if (s.i === App.you) {
-          // Accepte les téléportations serveur (réunions, début de partie)
-          if (distXY(App.pos.x, App.pos.y, s.x, s.y) > 200) {
+          // En conduit / scan ou téléportation serveur (réunions, début de partie)
+          if (App.inVent || App.scanning || distXY(App.pos.x, App.pos.y, s.x, s.y) > 200) {
             App.pos.x = s.x; App.pos.y = s.y;
           }
           App.alive = !!s.a;
@@ -200,7 +220,7 @@ window.Net = (() => {
 
     socket.on('body', (b) => {
       App.bodies.push(b);
-      if (!App.alive || App.role === 'impostor') return;
+      if (!App.alive || App.isImpostor()) return;
       // L'équipage proche entend un bruit sourd
       const me = App.pos;
       if (distXY(me.x, me.y, b.x, b.y) < 500) Sfx.kill();
@@ -208,9 +228,14 @@ window.Net = (() => {
 
     socket.on('died', () => {
       App.alive = false;
+      App.inVent = null;
+      App.scanning = false;
+      App.disguises.delete(App.you);
+      UI.hideVentControls();
       MiniGames.close(false);
       $('ghost-banner').classList.remove('hidden');
       UI.updateChatAccess();
+      UI.updateRoleControls();
       toast('☠ Tu as été éliminé ! Tu peux observer tout le vaisseau en spectateur.', 5000);
       Sfx.kill();
       Voice.stop();
@@ -218,14 +243,55 @@ window.Net = (() => {
 
     socket.on('kill:ok', (d) => { App.killAt = d.killAt; });
 
+    // Conduits
+    socket.on('vent:in', (d) => {
+      App.inVent = d.ventId;
+      App.ventNet = d.net || [];
+      UI.showVentControls();
+    });
+    socket.on('vent:moved', (d) => { App.inVent = d.ventId; UI.showVentControls(); });
+    socket.on('vent:out', (d) => {
+      App.inVent = null;
+      if (d) { App.pos.x = d.x; App.pos.y = d.y; }
+      UI.hideVentControls();
+    });
+
+    // Scan médical visuel
+    socket.on('scan:on', (d) => {
+      App.scans.set(d.playerId, { x: d.x, y: d.y, endsAt: d.endsAt });
+      if (d.playerId === App.you) {
+        App.scanning = true;
+        App.pos.x = d.x; App.pos.y = d.y;
+        toast('🩺 Scan en cours… reste immobile, les autres te voient innocenté');
+      }
+    });
+    socket.on('scan:off', (d) => {
+      App.scans.delete(d.playerId);
+      if (d.playerId === App.you) App.scanning = false;
+    });
+    socket.on('scan:complete', (d) => {
+      const t = App.tasks.find((x) => x.id === d.taskId);
+      if (t) { t.done = true; UI.refreshTasks(); Sfx.task(); }
+    });
+
+    // Métamorphose
+    socket.on('shift', (d) => {
+      App.disguises.set(d.playerId, { name: d.name, color: d.color, endsAt: d.endsAt });
+      if (d.playerId === App.you) { App.shiftReadyAt = d.endsAt + SHARED.SHIFT_COOLDOWN * 1000; toast('🎭 Tu as pris l’apparence de ' + d.name); }
+    });
+    socket.on('shift:off', (d) => { App.disguises.delete(d.playerId); });
+
     socket.on('meeting:start', (d) => {
       App.phase = 'meeting';
       App.bodies = [];
       App.markers = [];
+      App.inVent = null;
+      App.scanning = false;
+      App.scans.clear();
+      UI.hideVentControls();
       UI.meetingOpen(d);
       UI.refreshSabBanner();
     });
-    socket.on('meeting:stage', (d) => UI.meetingStage(d));
     socket.on('meeting:votes', (d) => UI.meetingVotes(d));
     socket.on('meeting:result', (d) => UI.meetingResult(d));
     socket.on('meeting:end', (d) => {

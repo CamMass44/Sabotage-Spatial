@@ -70,16 +70,16 @@ function findPath(from, to) {
 /* ---- Comportements ---- */
 
 function impostorAI(room, p, api, now) {
-  if (p.role !== 'impostor' || !p.alive) return;
+  if (!SHARED.isImpostorTeam(p.role) || !p.alive) return;
   // sabotage occasionnel
   if (!room.sab && now >= room.sabCooldownUntil && Math.random() < 0.005) {
     const types = Object.keys(SHARED.SABOTAGES);
     api.startSab(room, p, types[Math.floor(Math.random() * types.length)]);
   }
-  // élimination opportuniste
+  // élimination opportuniste (jamais un coéquipier saboteur)
   if (now >= p.killAt && Math.random() < 0.08) {
     for (const q of room.players.values()) {
-      if (q.id === p.id || !q.alive || q.role !== 'crew') continue;
+      if (q.id === p.id || !q.alive || SHARED.isImpostorTeam(q.role)) continue;
       if (Math.hypot(q.x - p.x, q.y - p.y) < 90) { api.doKill(room, p, q); break; }
     }
   }
@@ -95,12 +95,13 @@ function meetingAI(room, p, b, api, now) {
     b.chatted = false;
     b.chatAt = Math.random() < 0.7 ? now + 2000 + Math.random() * 10000 : 0;
   }
-  if (m.stage === 'discussion' && b.chatAt && !b.chatted && now >= b.chatAt && p.alive) {
+  if (b.chatAt && !b.chatted && now >= b.chatAt && p.alive) {
     b.chatted = true;
     api.botChat(room, p, CHAT_LINES[Math.floor(Math.random() * CHAT_LINES.length)]);
   }
-  if (m.stage === 'voting' && p.alive && !m.votes[p.id]) {
-    if (!b.voteAt) b.voteAt = now + 2000 + Math.random() * 9000;
+  // Vote unique vers la fin de la réunion (le dernier vote compte)
+  if (m.stage === 'open' && p.alive && !m.votes[p.id]) {
+    if (!b.voteAt) b.voteAt = now + Math.max(2000, (m.endsAt - now) * (0.5 + Math.random() * 0.4));
     if (now >= b.voteAt) {
       let target = 'skip';
       if (Math.random() < 0.35) {
@@ -114,7 +115,7 @@ function meetingAI(room, p, b, api, now) {
 
 function chooseGoal(room, p, b, now) {
   // réparer un sabotage (équipiers vivants ; critique = prioritaire)
-  if (p.alive && p.role === 'crew' && room.sab) {
+  if (p.alive && SHARED.isCrew(p.role) && room.sab) {
     const critical = SHARED.SABOTAGES[room.sab.type].critical;
     if (critical || !b.goal || b.goal.kind === 'wander' || b.goal.kind === 'idle') {
       if (!b.goal || b.goal.kind !== 'fix') {
@@ -132,7 +133,7 @@ function chooseGoal(room, p, b, now) {
 
   // mission suivante (les équipiers fantômes continuent ; les saboteurs font semblant)
   const t = p.tasks.find((x) => !x.done);
-  if (t && (p.role === 'crew' || p.alive)) {
+  if (t && (SHARED.isCrew(p.role) || p.alive)) {
     const def = SHARED.TASKS.find((d) => d.id === t.id);
     if (def) {
       b.goal = { kind: 'task', id: t.id, x: def.x, y: def.y };

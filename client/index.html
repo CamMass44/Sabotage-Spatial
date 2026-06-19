@@ -50,11 +50,33 @@
         <h3>⚙️ Paramètres <span class="hint" id="settings-who"></span></h3>
         <label>Saboteurs <input type="number" id="set-impostors" min="1" max="3"></label>
         <label>Délai entre éliminations (s) <input type="number" id="set-killCooldown" min="10" max="60"></label>
-        <label>Temps de discussion (s) <input type="number" id="set-discussTime" min="15" max="120"></label>
-        <label>Temps de vote (s) <input type="number" id="set-voteTime" min="15" max="120"></label>
+        <label>Temps de réunion (s) <input type="number" id="set-discussTime" min="15" max="120"></label>
         <label>Missions par joueur <input type="number" id="set-tasksPerPlayer" min="2" max="8"></label>
         <label>Réunions d'urgence / joueur <input type="number" id="set-emergencies" min="0" max="3"></label>
         <label class="check"><input type="checkbox" id="set-confirmEjects"> Révéler le rôle des éjectés</label>
+
+        <h3 class="roles-title">🎭 Rôles présents</h3>
+        <p class="hint roles-hint">Choisis les personnages qui peuvent apparaître. Ils sont tirés au sort parmi les joueurs.</p>
+        <div class="role-row" style="--rc:#34d399">
+          <span class="role-ic">🔧</span>
+          <span class="role-info"><b>Ingénieur</b><small>Équipier — peut emprunter les conduits</small></span>
+          <input type="number" id="set-engineers" min="0" max="2">
+        </div>
+        <div class="role-row" style="--rc:#a78bfa">
+          <span class="role-ic">🩺</span>
+          <span class="role-info"><b>Scientifique</b><small>Équipier — consulte les constantes vitales</small></span>
+          <input type="number" id="set-scientists" min="0" max="2">
+        </div>
+        <div class="role-row" style="--rc:#e879f9">
+          <span class="role-ic">🎭</span>
+          <span class="role-info"><b>Métamorphe</b><small>Saboteur — prend l'apparence d'un joueur</small></span>
+          <input type="number" id="set-metamorphs" min="0" max="3">
+        </div>
+        <div class="role-row" style="--rc:#fbbf24">
+          <span class="role-ic">🃏</span>
+          <span class="role-info"><b>Bouffon</b><small>Solo — gagne s'il se fait éjecter</small></span>
+          <input type="number" id="set-jesters" min="0" max="1">
+        </div>
       </div>
     </div>
   </section>
@@ -78,11 +100,23 @@
 
       <div id="btns">
         <button id="b-kill" class="action-btn kill hidden">TUER<small>T</small></button>
-        <button id="b-sab" class="action-btn sab hidden">SABOTER<small>V</small></button>
+        <button id="b-sab" class="action-btn sab hidden">SABOTER<small>B</small></button>
+        <button id="b-shift" class="action-btn shift hidden">MÉTAMORPHE<small>G</small></button>
+        <button id="b-vent" class="action-btn vent hidden">CONDUIT<small>V</small></button>
+        <button id="b-vitals" class="action-btn vitals hidden">CONSTANTES<small>F</small></button>
         <button id="b-report" class="action-btn report">SIGNALER<small>R</small></button>
         <button id="b-use" class="action-btn use">UTILISER<small>E</small></button>
         <button id="b-map" class="action-btn map">CARTE<small>C</small></button>
       </div>
+
+      <!-- Contrôles de conduit (affichés quand on est dans un conduit) -->
+      <div id="vent-controls" class="hidden">
+        <div id="vent-arrows"></div>
+        <button id="vent-exit" class="btn">⬆ Sortir du conduit</button>
+      </div>
+
+      <!-- Minimap persistante -->
+      <canvas id="minimap"></canvas>
 
       <button id="b-mic" class="round-btn" title="Chat vocal">🎙️</button>
 
@@ -121,6 +155,25 @@
         <button class="btn sab-opt" data-sab="o2">🫧 Oxygène<small>Critique — victoire si non réparé</small></button>
         <button class="btn sab-opt" data-sab="comms">📡 Communications<small>Désactive missions et caméras</small></button>
         <button class="btn small" id="sab-cancel">Annuler</button>
+      </div>
+    </div>
+
+    <!-- Sélecteur de métamorphose (Métamorphe) -->
+    <div id="overlay-shift" class="overlay hidden">
+      <div class="card shift-box">
+        <h3>🎭 Prendre une apparence</h3>
+        <p class="hint">Tu ressembleras à ce joueur pendant quelques secondes.</p>
+        <div id="shift-list"></div>
+        <button id="shift-cancel" class="btn small">Annuler</button>
+      </div>
+    </div>
+
+    <!-- Constantes vitales (Scientifique) -->
+    <div id="overlay-vitals" class="overlay hidden">
+      <div class="card vitals-box">
+        <h3>🩺 Constantes vitales</h3>
+        <div id="vitals-list"></div>
+        <button id="vitals-close" class="btn small">Fermer</button>
       </div>
     </div>
 

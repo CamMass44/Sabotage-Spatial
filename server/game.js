@@ -623,7 +623,10 @@ function endMeeting(room) {
     emitRoom(room, 'sab', sabPayload(room));
   }
   for (const p of room.players.values()) {
-    if (SHARED.isImpostorTeam(p.role)) p.killAt = now + room.settings.killCooldown * 1000;
+    if (SHARED.isImpostorTeam(p.role)) {
+      p.killAt = now + room.settings.killCooldown * 1000;
+      sendTo(room, p, 'kill:ok', { killAt: p.killAt }); // synchronise le cooldown côté client
+    }
     p.shiftReadyAt = now + 8000;
   }
   room.noMeetingUntil = now + 15000;

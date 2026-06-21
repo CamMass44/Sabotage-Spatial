@@ -127,7 +127,7 @@ const Actions = (() => {
       ctx.reportable = App.bodies.some((b) => near(b, 140));
     }
     // Cible d'élimination (pas les complices, ni les joueurs en conduit)
-    if (App.alive && App.role === 'impostor') {
+    if (App.alive && App.isImpostor()) {
       let best = null, bestD = 110;
       for (const p of App.players.values()) {
         if (p.id === App.you || !p.alive || !p.connected || p.vent) continue;

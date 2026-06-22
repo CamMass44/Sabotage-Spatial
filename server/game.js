@@ -362,7 +362,7 @@ function checkWin(room) {
 /* ------------------------------------------------------------------ */
 
 function completeTask(room, player, taskId) {
-  if (room.phase !== 'play') return false;
+  if (room.phase !== 'play' || !player.alive) return false; // les morts ne font plus de missions
   const task = player.tasks.find((t) => t.id === taskId && !t.done);
   if (!task) return false;
   const def = SHARED.TASKS.find((t) => t.id === task.id);
@@ -374,6 +374,24 @@ function completeTask(room, player, taskId) {
     checkWin(room);
   }
   return true;
+}
+
+// Redistribue les missions non faites d'un équipier mort vers les équipiers vivants
+function redistributeTasks(room, dead) {
+  if (!SHARED.isCrew(dead.role)) return;
+  const undone = dead.tasks.filter((t) => !t.done);
+  if (!undone.length) return;
+  dead.tasks = dead.tasks.filter((t) => t.done); // le mort ne garde que ses missions faites
+  const living = [...room.players.values()].filter((p) => p.alive && SHARED.isCrew(p.role) && p.id !== dead.id);
+  for (const t of undone) {
+    if (!living.length) { room.taskTotal--; continue; } // personne pour reprendre : retiré du total
+    const free = living.filter((p) => !p.tasks.some((x) => x.id === t.id));
+    const pool = free.length ? free : living;
+    const recipient = pool[rnd(pool.length)];
+    recipient.tasks.push({ id: t.id, done: false });
+    sendTo(room, recipient, 'task:add', { taskId: t.id });
+  }
+  emitRoom(room, 'task:progress', { pct: taskPct(room) });
 }
 
 function doKill(room, killer, target) {
@@ -389,6 +407,7 @@ function doKill(room, killer, target) {
   const body = { id: rid(6), playerId: target.id, color: target.color, x: target.x, y: target.y };
   room.bodies.push(body);
   killer.killAt = now + room.settings.killCooldown * 1000;
+  redistributeTasks(room, target);
   sendTo(room, target, 'died', { by: killer.id });
   sendTo(room, killer, 'kill:ok', { killAt: killer.killAt });
   emitRoom(room, 'body', body);
@@ -418,14 +437,21 @@ function castVote(room, player, target) {
     m.votes[player.id] = target;
   }
   emitRoom(room, 'meeting:votes', { voted: Object.keys(m.votes) });
+  // Fin anticipée : inutile d'attendre si tous les vivants connectés ont voté
+  const voters = [...room.players.values()].filter((p) => p.alive && p.connected);
+  if (voters.length && voters.every((p) => m.votes[p.id])) m.endsAt = Date.now();
 }
 
 function startSab(room, player, type) {
   if (room.phase !== 'play' || !SHARED.isImpostorTeam(player.role) || !player.alive || room.sab) return;
+  if (player.inVent) return;
   const now = Date.now();
   if (now < room.sabCooldownUntil) return;
   const def = SHARED.SABOTAGES[type];
   if (!def) return;
+  // Le sabotage ne peut être déclenché que depuis la salle concernée
+  const r = SHARED.roomAt(player.x, player.y);
+  if (!r || r.name !== def.room) return;
   const dur = type === 'reactor' ? room.settings.reactorTime
     : type === 'o2' ? room.settings.o2Time : null;
   room.sab = { type, endsAt: dur ? now + dur * 1000 : null };
@@ -587,6 +613,7 @@ function tallyVotes(room) {
     if (p) {
       p.alive = false;
       if (p.shiftAs) unshift(room, p);
+      redistributeTasks(room, p);
       ejectedRole = p.role;
       if (room.settings.confirmEjects) wasImpostor = SHARED.isImpostorTeam(p.role);
       // Le Bouffon gagne s'il se fait éjecter

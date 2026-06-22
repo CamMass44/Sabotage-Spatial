@@ -99,15 +99,24 @@ function meetingAI(room, p, b, api, now) {
     b.chatted = true;
     api.botChat(room, p, CHAT_LINES[Math.floor(Math.random() * CHAT_LINES.length)]);
   }
-  // Vote unique vers la fin de la réunion (le dernier vote compte)
+  // Vote unique (le bot suit la tendance : il vote pour le plus visé)
   if (m.stage === 'open' && p.alive && !m.votes[p.id]) {
-    if (!b.voteAt) b.voteAt = now + Math.max(2000, (m.endsAt - now) * (0.5 + Math.random() * 0.4));
+    if (!b.voteAt) b.voteAt = now + 1500 + Math.random() * 6000;
     if (now >= b.voteAt) {
-      let target = 'skip';
-      if (Math.random() < 0.35) {
-        const alive = [...room.players.values()].filter((q) => q.alive && q.id !== p.id);
-        if (alive.length) target = alive[Math.floor(Math.random() * alive.length)].id;
+      // décompte des votes actuels (hors abstention)
+      const counts = {};
+      for (const v of Object.values(m.votes)) if (v !== 'skip') counts[v] = (counts[v] || 0) + 1;
+      let leader = null, max = 0;
+      for (const id in counts) {
+        const tp = room.players.get(id);
+        if (tp && tp.alive && id !== p.id && counts[id] > max) { max = counts[id]; leader = id; }
       }
+      let target;
+      if (leader) target = leader;                 // rejoint le joueur déjà le plus accusé
+      else if (Math.random() < 0.5) {              // sinon amorce parfois une accusation
+        const alive = [...room.players.values()].filter((q) => q.alive && q.id !== p.id);
+        target = alive.length ? alive[Math.floor(Math.random() * alive.length)].id : 'skip';
+      } else target = 'skip';
       api.castVote(room, p, target);
     }
   }
@@ -188,9 +197,9 @@ function moveAlong(room, p, b, api, dt, now) {
   p.y += (wp.y - p.y) / d * step;
   p.dir = wp.x >= p.x ? 1 : -1;
   p.moving = true;
-  // anti-blocage : si aucun progrès en 3 s, saute au point de passage
+  // anti-blocage : si aucun progrès en 3 s, on recalcule le trajet (sans téléporter le bot)
   if (d < b.lastDist - 1) { b.lastDist = d; b.stuckAt = now; }
-  else if (now - b.stuckAt > 3000) { p.x = wp.x; p.y = wp.y; b.stuckAt = now; b.lastDist = Infinity; }
+  else if (now - b.stuckAt > 3000) { b.path = null; b.stuckAt = now; b.lastDist = Infinity; }
 }
 
 function tickBots(room, api, dtMs) {

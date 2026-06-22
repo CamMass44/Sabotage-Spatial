@@ -673,7 +673,7 @@ window.UI = (() => {
     $('b-use').onclick = () => Actions.use();
     $('b-report').onclick = () => Actions.report();
     $('b-kill').onclick = () => Actions.kill();
-    $('b-sab').onclick = () => { if (!$('b-sab').disabled) openSabPicker(); };
+    $('b-sab').onclick = () => Actions.sabotage();
     $('b-vent').onclick = () => Actions.vent();
     $('b-vitals').onclick = () => openVitals();
     $('b-shift').onclick = () => {

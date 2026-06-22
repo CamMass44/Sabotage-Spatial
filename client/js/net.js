@@ -218,6 +218,16 @@ window.Net = (() => {
       UI.setProgress(d.pct);
     });
 
+    // Une mission d'un équipier mort m'est réattribuée
+    socket.on('task:add', (d) => {
+      if (!App.tasks.some((t) => t.id === d.taskId && !t.done)) {
+        App.tasks.push({ id: d.taskId, done: false });
+        UI.refreshTasks();
+        const def = SHARED.TASKS.find((t) => t.id === d.taskId);
+        toast('🧭 Nouvelle mission à reprendre : ' + (def ? def.room + ' — ' + def.name : d.taskId));
+      }
+    });
+
     socket.on('body', (b) => {
       App.bodies.push(b);
       if (!App.alive || App.isImpostor()) return;

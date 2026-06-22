@@ -22,7 +22,7 @@ const Input = (() => {
       else if (e.code === 'KeyC') {
         if ($('overlay-map').classList.contains('hidden')) UI.openMap(); else UI.closeMap();
       }
-      else if (e.code === 'KeyB') { if (!$('b-sab').classList.contains('hidden') && !$('b-sab').disabled) UI.openSabPicker(); }
+      else if (e.code === 'KeyB') { if (App.isImpostor() && App.alive) Actions.sabotage(); }
     }
     if (e.code === 'Escape') {
       UI.closeMap(); UI.closeSabPicker(); MiniGames.close(false);
@@ -94,7 +94,7 @@ const Actions = (() => {
   }
 
   function compute() {
-    ctx = { use: null, reportable: false, killTarget: null, ventNear: null };
+    ctx = { use: null, reportable: false, killTarget: null, ventNear: null, sabHere: null };
     if (App.phase !== 'play' || App.meeting || App.mode === 'cams') return ctx;
     if (App.inVent || App.scanning) return ctx; // immobilisé : aucune action contextuelle
 
@@ -104,8 +104,8 @@ const Actions = (() => {
       const pt = SHARED.POINTS[def.fix];
       if (near(pt, 110)) ctx.use = { kind: 'fix', type: App.sab.type };
     }
-    // Mission à portée (les fantômes peuvent encore aider)
-    if (!ctx.use && !(App.sab && App.sab.type === 'comms' && !App.isImpostor())) {
+    // Mission à portée (vivants uniquement : les morts ne font plus de missions)
+    if (!ctx.use && App.alive && !(App.sab && App.sab.type === 'comms' && !App.isImpostor())) {
       for (const t of App.tasks) {
         if (t.done) continue;
         const def = SHARED.TASKS.find((d) => d.id === t.id);
@@ -120,6 +120,12 @@ const Actions = (() => {
     // Conduit à portée (saboteurs + ingénieurs)
     if (App.canVent()) {
       for (const v of SHARED.VENTS) { if (near(v, 70)) { ctx.ventNear = v; break; } }
+    }
+
+    // Sabotage : seulement depuis la salle concernée
+    if (App.alive && App.isImpostor() && !App.sab) {
+      const r = SHARED.roomAt(App.pos.x, App.pos.y);
+      if (r) for (const type in SHARED.SABOTAGES) { if (SHARED.SABOTAGES[type].room === r.name) { ctx.sabHere = type; break; } }
     }
 
     // Signalement de corps
@@ -174,7 +180,9 @@ const Actions = (() => {
         bKill.firstChild.textContent = 'TUER';
         bKill.disabled = !ctx.killTarget;
       }
-      bSab.disabled = !!App.sab || App.phase !== 'play' || !!App.meeting;
+      // Sabotage possible seulement depuis la salle concernée
+      bSab.disabled = !!App.sab || !ctx.sabHere;
+      bSab.firstChild.textContent = ctx.sabHere ? 'SABOTER ' + SHARED.SABOTAGES[ctx.sabHere].name.toUpperCase() : 'SABOTER';
     }
 
     // Métamorphose (Métamorphe)
@@ -257,7 +265,14 @@ const Actions = (() => {
     if (ctx.ventNear) App.socket.emit('vent:enter', { ventId: ctx.ventNear.id });
   }
 
-  return { use, report, kill, vent, updateButtons, compute };
+  function sabotage() {
+    compute();
+    if (App.sab) { toast('Un sabotage est déjà en cours.'); return; }
+    if (ctx.sabHere) App.socket.emit('sab:start', { type: ctx.sabHere });
+    else toast('Va dans une salle saboteable : Réacteur, O2, Électricité ou Communications.');
+  }
+
+  return { use, report, kill, vent, sabotage, updateButtons, compute };
 })();
 
 /* ================= Moteur ================= */
@@ -807,12 +822,17 @@ const Game = (() => {
   }
 
   function interpolate(dt) {
-    const k = Math.min(1, dt * 12);
+    // Rapproche chaque joueur de sa position serveur à vitesse plafonnée :
+    // même si les positions arrivent par à-coups (serveur lent), le perso « marche »
+    // au lieu de bondir. Les gros écarts (réunions) sont déjà téléportés dans net.js.
+    const maxStep = 340 * dt; // px/frame max (un peu au-dessus de la vitesse de jeu)
     for (const p of App.players.values()) {
       if (p.id === App.you) continue;
       if (p.tx == null) { p.tx = p.x; p.ty = p.y; }
-      p.x += (p.tx - p.x) * k;
-      p.y += (p.ty - p.y) * k;
+      const dx = p.tx - p.x, dy = p.ty - p.y;
+      const d = Math.hypot(dx, dy);
+      if (d <= maxStep || d < 0.5) { p.x = p.tx; p.y = p.ty; }
+      else { p.x += dx / d * maxStep; p.y += dy / d * maxStep; }
     }
   }
 
@@ -839,9 +859,9 @@ const Game = (() => {
     const t = performance.now() / 1000;
     const pulse = 0.6 + Math.sin(t * 5) * 0.4;
 
-    // Objectifs de mission (les miens, non terminés)
+    // Objectifs de mission (les miens, non terminés ; les morts ne font plus de missions)
     const commsDown = App.sab && App.sab.type === 'comms' && !App.isImpostor();
-    if (App.phase === 'play' && !commsDown) {
+    if (App.phase === 'play' && App.alive && !commsDown) {
       for (const task of App.tasks) {
         if (task.done) continue;
         const def = SHARED.TASKS.find((d) => d.id === task.id);

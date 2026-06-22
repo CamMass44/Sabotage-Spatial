@@ -123,11 +123,12 @@
   // Équipe "saboteurs"
   exports.isImpostorTeam = function (role) { return role === 'impostor' || role === 'metamorph'; };
 
+  // `room` : salle d'où le sabotage doit être déclenché (le saboteur doit s'y trouver)
   exports.SABOTAGES = {
-    lights:  { name: 'Lumières',       fix: 'lightsFix',  critical: false, desc: 'La vision des équipiers est réduite' },
-    reactor: { name: 'Réacteur',       fix: 'reactorFix', critical: true,  desc: 'Fusion imminente : réparez vite !' },
-    o2:      { name: 'Oxygène',        fix: 'o2Fix',      critical: true,  desc: "L'oxygène s'épuise : réparez vite !" },
-    comms:   { name: 'Communications', fix: 'commsFix',   critical: false, desc: 'Missions et caméras désactivées' }
+    lights:  { name: 'Lumières',       fix: 'lightsFix',  room: 'Électricité',    critical: false, desc: 'La vision des équipiers est réduite' },
+    reactor: { name: 'Réacteur',       fix: 'reactorFix', room: 'Réacteur',       critical: true,  desc: 'Fusion imminente : réparez vite !' },
+    o2:      { name: 'Oxygène',        fix: 'o2Fix',      room: 'O2',             critical: true,  desc: "L'oxygène s'épuise : réparez vite !" },
+    comms:   { name: 'Communications', fix: 'commsFix',   room: 'Communications', critical: false, desc: 'Missions et caméras désactivées' }
   };
 
   exports.DEFAULT_SETTINGS = {
